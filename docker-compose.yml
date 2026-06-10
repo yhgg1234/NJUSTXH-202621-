@@ -1,0 +1,93 @@
+# XH-202621 多源异构数据驱动岗位和能力图谱构建与动态演化分析研究
+# Docker Compose 编排文件
+# 前期先启动 Neo4j，后续逐步加入 backend、frontend、MySQL、MongoDB
+
+version: "3.8"
+
+services:
+  # Neo4j 图数据库 —— 知识图谱存储与查询
+  neo4j:
+    image: neo4j:5.23.0
+    container_name: xh21-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Web 管理界面
+      - "7687:7687"   # Bolt 协议
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-neo4j123}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_heap_max__size=1G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    networks:
+      - xh21-network
+
+  # MySQL 关系数据库 —— 岗位元数据、用户数据
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: xh21-mysql
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3306:3306"
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD:-root123}
+  #     - MYSQL_DATABASE=job_graph
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   networks:
+  #     - xh21-network
+
+  # MongoDB 文档数据库 —— 原始数据、爬虫数据
+  # mongodb:
+  #   image: mongo:7.0
+  #   container_name: xh21-mongodb
+  #   restart: unless-stopped
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   networks:
+  #     - xh21-network
+
+  # Backend API（后续启用）
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: xh21-backend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - neo4j
+  #     - mysql
+  #     - mongodb
+  #   networks:
+  #     - xh21-network
+
+  # Frontend（后续启用）
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: xh21-frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5173:80"
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - xh21-network
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  # mysql_data:
+  # mongo_data:
+
+networks:
+  xh21-network:
+    driver: bridge

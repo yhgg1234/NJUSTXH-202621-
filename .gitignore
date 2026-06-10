@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Node / Vue
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# 环境变量（不要提交敏感信息）
+.env
+.env.local
+
+# 数据文件（太大不上传）
+data/raw/*
+data/processed/*
+!data/demo/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+docker/*.log
+
+# 模型文件
+*.pt
+*.pth
+*.onnx
+*.bin
+models/
+
+# 日志
+logs/
+*.log
+
+# 测试覆盖率
+htmlcov/
+.coverage
+coverage.xml
