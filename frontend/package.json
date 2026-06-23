@@ -1,6 +1,7 @@
 {
   "name": "job-competency-graph-frontend",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "description": "XH-202621 岗位能力图谱系统前端",
   "scripts": {
