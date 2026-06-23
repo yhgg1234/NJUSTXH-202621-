@@ -12,6 +12,9 @@
 - 简历解析（PDF/Word）与人岗匹配诊断
 - 动态演化分析与趋势预测
 
+知识图谱模块的 Schema、API 和跨子任务数据契约见
+[`backend/app/graph/README.md`](backend/app/graph/README.md)。
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -37,7 +40,8 @@ XH21/
 │   └── requirements.txt  # Python 依赖
 ├── frontend/             # 前端（Vue 3）
 │   ├── src/
-│   ├── App.vue
+│   │   ├── App.vue
+│   │   └── components/
 │   ├── index.html
 │   └── package.json
 ├── data/                 # 数据目录
