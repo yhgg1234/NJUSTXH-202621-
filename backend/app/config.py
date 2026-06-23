@@ -21,6 +21,7 @@ class Settings:
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "neo4j123")
+    NEO4J_DATABASE: str = os.getenv("NEO4J_DATABASE", "neo4j")
 
     MYSQL_HOST: str = os.getenv("MYSQL_HOST", "localhost")
     MYSQL_PORT: int = int(os.getenv("MYSQL_PORT", "3306"))

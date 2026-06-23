@@ -6,6 +6,8 @@ Backend Application Entry Point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers.graph import router as graph_router
+
 app = FastAPI(
     title="岗位能力图谱系统 API",
     description="多源异构数据驱动的岗位和能力图谱构建与动态演化分析系统",
@@ -20,6 +22,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(graph_router)
 
 
 @app.get("/")

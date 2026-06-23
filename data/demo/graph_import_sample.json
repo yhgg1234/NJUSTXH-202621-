@@ -1,0 +1,88 @@
+{
+  "batch_id": "task-2.2-demo-20260623",
+  "producer": "task-2.2",
+  "nodes": [
+    {
+      "id": "job:ai-agent-engineer",
+      "type": "Job",
+      "name": "AI Agent开发工程师",
+      "aliases": ["智能体开发工程师"],
+      "properties": {
+        "level": "中级",
+        "description": "设计、开发并评估面向业务场景的智能体应用"
+      },
+      "confidence": 0.94,
+      "source_ids": ["source:jd-001"],
+      "observed_at": "2026-06-20T08:00:00+08:00"
+    },
+    {
+      "id": "skill:python",
+      "type": "Skill",
+      "name": "Python",
+      "aliases": [],
+      "properties": {"category": "编程语言"},
+      "confidence": 0.99,
+      "source_ids": ["source:jd-001"]
+    },
+    {
+      "id": "stack:llm-application",
+      "type": "TechStack",
+      "name": "大模型应用开发",
+      "properties": {},
+      "confidence": 0.92
+    },
+    {
+      "id": "industry:artificial-intelligence",
+      "type": "Industry",
+      "name": "人工智能",
+      "properties": {},
+      "confidence": 0.98
+    },
+    {
+      "id": "source:jd-001",
+      "type": "Source",
+      "name": "示例招聘JD 001",
+      "properties": {
+        "channel": "招聘平台",
+        "url": "https://example.invalid/jobs/001",
+        "content_hash": "sha256:demo"
+      },
+      "confidence": 1.0
+    }
+  ],
+  "relationships": [
+    {
+      "id": "job:ai-agent-engineer|REQUIRES_SKILL|skill:python|2026-06",
+      "type": "REQUIRES_SKILL",
+      "from_id": "job:ai-agent-engineer",
+      "to_id": "skill:python",
+      "properties": {"importance": 0.95, "frequency": 18},
+      "confidence": 0.96,
+      "evidence_ids": ["source:jd-001"],
+      "observed_at": "2026-06-20T08:00:00+08:00",
+      "valid_from": "2026-06-01T00:00:00+08:00"
+    },
+    {
+      "id": "skill:python|BELONGS_TO_STACK|stack:llm-application",
+      "type": "BELONGS_TO_STACK",
+      "from_id": "skill:python",
+      "to_id": "stack:llm-application",
+      "confidence": 0.91
+    },
+    {
+      "id": "job:ai-agent-engineer|APPLIES_TO_INDUSTRY|industry:artificial-intelligence",
+      "type": "APPLIES_TO_INDUSTRY",
+      "from_id": "job:ai-agent-engineer",
+      "to_id": "industry:artificial-intelligence",
+      "confidence": 0.98
+    },
+    {
+      "id": "job:ai-agent-engineer|DERIVED_FROM|source:jd-001",
+      "type": "DERIVED_FROM",
+      "from_id": "job:ai-agent-engineer",
+      "to_id": "source:jd-001",
+      "confidence": 1.0
+    }
+  ]
+}
+
