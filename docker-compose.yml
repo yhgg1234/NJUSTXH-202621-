@@ -2,8 +2,6 @@
 # Docker Compose 编排文件
 # 前期先启动 Neo4j，后续逐步加入 backend、frontend、MySQL、MongoDB
 
-version: "3.8"
-
 services:
   # Neo4j 图数据库 —— 知识图谱存储与查询
   neo4j:
