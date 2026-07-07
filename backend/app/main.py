@@ -6,12 +6,19 @@ Backend Application Entry Point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers.data_collection import router as data_collection_router
+from app.routers.data_cleaning import router as data_cleaning_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.extraction import router as extraction_router
 from app.routers.graph import router as graph_router
+from app.routers.jobs import router as jobs_router
+from app.routers.matching import router as matching_router
+from app.routers.resume import router as resume_router
 
 app = FastAPI(
     title="岗位能力图谱系统 API",
     description="多源异构数据驱动的岗位和能力图谱构建与动态演化分析系统",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 # CORS 中间件配置（开发阶段允许前端跨域访问）
@@ -24,6 +31,13 @@ app.add_middleware(
 )
 
 app.include_router(graph_router)
+app.include_router(data_collection_router)
+app.include_router(data_cleaning_router)
+app.include_router(extraction_router)
+app.include_router(jobs_router)
+app.include_router(resume_router)
+app.include_router(matching_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/")
