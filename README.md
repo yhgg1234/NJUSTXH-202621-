@@ -15,6 +15,22 @@
 知识图谱模块的 Schema、API 和跨子任务数据契约见
 [`backend/app/graph/README.md`](backend/app/graph/README.md)。
 
+## 模块文档索引
+
+为避免多人并行开发时文档分散或互相覆盖，根目录 README 只保留项目总览和导航；各子任务的实现细节、接口契约和联调要求写在对应模块 README 中。
+
+| 模块/资料 | 文档位置 | 说明 |
+|------|------|------|
+| 项目任务书 | [`docs/`](docs/) | 任务书、分工表、项目相关资料 |
+| 2.3 岗位能力知识图谱 | [`backend/app/graph/README.md`](backend/app/graph/README.md) | 图谱 Schema、节点/关系格式、图谱 API、跨子任务数据契约 |
+| 3.2 简历解析 | 待补充 | 建议后续补充标准化简历画像输出格式，供 3.3 人岗匹配消费 |
+| 3.3 人岗匹配诊断与差距分析 | [`backend/app/matching/README.md`](backend/app/matching/README.md) | 匹配评分、差距分析、Spark Lite 配置、对 2.3/3.2 的数据要求 |
+| 数据目录 | [`data/README.md`](data/README.md) | 原始数据、处理后数据、示例数据和 schema 的存放约定 |
+| 数据处理管线 | [`data_pipeline/README.md`](data_pipeline/README.md) | 数据处理脚本和管线说明 |
+| 工具脚本 | [`scripts/README.md`](scripts/README.md) | 项目辅助脚本说明 |
+
+当前联调状态：2.3 图谱与 3.3 匹配的数据格式已经预留适配；3.3 前后端展示链路可基于 demo 数据运行。真实数据闭环需要等待 3.2 简历解析画像和 2.3 真实岗位图谱数据完成交接后接入。
+
 ## 技术栈
 
 | 层级 | 技术 |
