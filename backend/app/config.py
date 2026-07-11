@@ -6,8 +6,13 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# 优先读取根目录 .env，便于前后端和脚本共享同一份本地配置。
+load_dotenv(BASE_DIR / ".env")
 
 
 class Settings:
