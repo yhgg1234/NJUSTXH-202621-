@@ -3,17 +3,29 @@ XH-202621 多源异构数据驱动岗位和能力图谱构建与动态演化分�
 Backend Application Entry Point
 """
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.data_collection import router as data_collection_router
 from app.routers.data_cleaning import router as data_cleaning_router
 from app.routers.dashboard import router as dashboard_router
-from app.routers.extraction import router as extraction_router
 from app.routers.graph import router as graph_router
 from app.routers.jobs import router as jobs_router
 from app.routers.matching import router as matching_router
 from app.routers.resume import router as resume_router
+
+logger = logging.getLogger(__name__)
+
+try:
+    from app.routers.extraction import router as extraction_router
+except ModuleNotFoundError as exc:
+    extraction_router = None
+    logger.warning(
+        "Extraction router is disabled because optional dependency '%s' is missing.",
+        exc.name,
+    )
 
 app = FastAPI(
     title="岗位能力图谱系统 API",
@@ -33,7 +45,8 @@ app.add_middleware(
 app.include_router(graph_router)
 app.include_router(data_collection_router)
 app.include_router(data_cleaning_router)
-app.include_router(extraction_router)
+if extraction_router is not None:
+    app.include_router(extraction_router)
 app.include_router(jobs_router)
 app.include_router(resume_router)
 app.include_router(matching_router)

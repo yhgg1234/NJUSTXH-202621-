@@ -12,9 +12,11 @@
 | 差距分析 | `POST /api/matching/gap-analysis` | 已实现 |
 | 学习路径规划 | `POST /api/matching/learning-path` | 已实现 |
 | 匹配历史 | `GET /api/matching/history` | 已实现 |
-| 演示选项 | `GET /api/matching/demo-options` | 已实现，供并行开发阶段前端选择数据 |
+| 匹配选项 | `GET /api/matching/options` | 已实现，返回可匹配的简历和岗位 |
 
-由于 3.2 简历解析、岗位管理和前置数据流程仍在并行开发，本模块暂时内置演示简历数据。岗位画像会优先从 2.3 知识图谱的 `get_subgraph(job_id=...)` 读取，并转换为 3.3 的 `JobProfile`；当 Neo4j 未启动、图谱中没有该岗位或岗位缺少技能关系时，才回退到内置演示岗位数据。
+3.3 启动时会优先加载 `data/processed/resumes/*.json` 中的 3.2 结构化简历；目录为空时才回退到内置演示简历，便于并行开发。岗位画像会优先从 2.3 知识图谱的 `get_subgraph(job_id=...)` 读取，并转换为 3.3 的 `JobProfile`；当 Neo4j 未启动、图谱中没有该岗位或岗位缺少技能关系时，才回退到内置演示岗位数据。
+
+每个 JSON 可以是一份简历对象，也可以是简历对象数组。加载器兼容上游可能出现的 `null` 学历专业、项目角色和工作年限：它们只会在内存中转为 3.3 的默认值，不改写原始 JSON。姓名为空、解析为“基本信息/相关技能”或包含联系方式时，前端显示为“候选人 + 简历编号”，避免出现空白选项或暴露联系方式。
 
 ## Spark Lite 配置
 
@@ -31,6 +33,7 @@ LLM_MODEL=lite
 1. `LLM_API_KEY` 填 HTTP 服务认证信息中的 `APIPassword`，不是 WebSocket 的 `APPID / APISecret / APIKey`。
 2. 不要把 `.env` 提交到 Git。
 3. 未配置 `LLM_API_KEY`、网络不可用或 Spark Lite 返回异常时，模块会自动降级为模板化建议，核心评分和差距分析仍可正常运行。
+4. 前端只在点击“开始诊断”后请求模型；一次完整诊断会分别生成匹配建议、差距摘要和学习路径，通常产生 3 次 Spark Lite 调用。
 
 ## 匹配算法
 

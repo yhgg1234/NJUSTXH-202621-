@@ -1,19 +1,43 @@
 """人岗匹配诊断接口测试。"""
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app
+from app.matching.llm import SparkLiteClient
+from app.matching.service import MatchingService
+from app.routers import matching as matching_router
 
 
 client = TestClient(app)
 
 
-def test_matching_demo_options():
-    response = client.get("/api/matching/demo-options")
+@pytest.fixture(autouse=True)
+def use_demo_service(monkeypatch):
+    """接口回归测试与本机是否存在真实简历数据相互独立。"""
+    monkeypatch.setattr("app.matching.service.load_job_profile_from_graph", lambda _job_id: None)
+    monkeypatch.setattr(
+        matching_router,
+        "service",
+        MatchingService(
+            llm_client=SparkLiteClient(api_url="", api_key=""),
+            resumes={},
+            jobs=None,
+        ),
+    )
+
+
+def test_matching_options():
+    response = client.get("/api/matching/options")
     assert response.status_code == 200
     data = response.json()
     assert data["resumes"]
     assert data["jobs"]
+
+
+def test_legacy_demo_options_endpoint_is_compatible():
+    response = client.get("/api/matching/demo-options")
+    assert response.status_code == 200
 
 
 def test_match_resume_to_job():

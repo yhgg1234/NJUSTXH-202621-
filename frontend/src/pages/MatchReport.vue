@@ -185,16 +185,13 @@ async function loadOptions() {
   loading.options = true
   error.value = ''
   try {
-    const data = await matchingApi.demoOptions()
+    const data = await matchingApi.options()
     options.resumes = data.resumes
     options.jobs = data.jobs
     selectedResumeId.value = data.resumes[0]?.id || ''
     selectedJobId.value = data.jobs[0]?.id || ''
-    if (selectedResumeId.value && selectedJobId.value) {
-      await runMatch()
-    }
   } catch (err) {
-    error.value = '加载演示数据失败，请确认后端服务已启动。'
+    error.value = '加载简历或岗位数据失败，请确认后端服务已启动。'
   } finally {
     loading.options = false
   }

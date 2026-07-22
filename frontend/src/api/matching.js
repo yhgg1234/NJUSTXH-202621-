@@ -1,7 +1,7 @@
 import apiClient from './client'
 
 export default {
-  demoOptions: () => apiClient.get('/matching/demo-options'),
+  options: () => apiClient.get('/matching/options'),
   match: (data) => apiClient.post('/matching/match', data),
   getMatchReport: (id) => apiClient.get(`/matching/match/${id}`),
   multiMatch: (data) => apiClient.post('/matching/multi-match', data),

@@ -25,9 +25,10 @@ def _not_found(exc: KeyError) -> HTTPException:
 
 # ── 单岗位匹配 ──
 
-@router.get("/demo-options", response_model=DemoOptionsResponse)
-def get_demo_options():
-    """并行开发阶段的演示简历和岗位选项"""
+@router.get("/options", response_model=DemoOptionsResponse)
+@router.get("/demo-options", response_model=DemoOptionsResponse, include_in_schema=False)
+def get_matching_options():
+    """获取可供人岗匹配的简历与岗位选项。"""
     return service.demo_options()
 
 

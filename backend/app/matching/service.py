@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from app.matching.llm import SparkLiteClient
 from app.matching.graph_adapter import load_job_profile_from_graph
+from app.matching.resume_loader import display_resume_name, load_processed_resumes
 from app.matching.models import (
     DemoOptionsResponse,
     DimensionScore,
@@ -56,21 +57,31 @@ DEGREE_SCORE = {
 class MatchingService:
     """人岗匹配应用服务。
 
-    当前阶段使用内置演示数据，接口形状与 3.2 简历解析、岗位管理和图谱
-    模块的预期输出保持一致，后续只需要替换数据获取层。
+    启动时优先加载 data/processed/resumes 的 3.2 结构化结果；目录为空时
+    使用内置演示数据，保证并行开发阶段仍可运行。
     """
 
-    def __init__(self, llm_client: SparkLiteClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: SparkLiteClient | None = None,
+        resumes: dict[str, ResumeProfile] | None = None,
+        jobs: dict[str, JobProfile] | None = None,
+    ) -> None:
         self.llm_client = llm_client or SparkLiteClient()
         self.reports: dict[str, MatchReport] = {}
         self.history: list[MatchReport] = []
-        self.resumes = _demo_resumes()
-        self.jobs = _demo_jobs()
+        loaded_resumes = load_processed_resumes() if resumes is None else resumes
+        self.resumes = loaded_resumes or _demo_resumes()
+        self.resume_data_source = "processed" if loaded_resumes else "demo"
+        self.jobs = jobs or _demo_jobs()
         self.graph_jobs: dict[str, JobProfile] = {}
 
     def demo_options(self) -> DemoOptionsResponse:
         return DemoOptionsResponse(
-            resumes=[{"id": item.id, "name": item.name} for item in self.resumes.values()],
+            resumes=[
+                {"id": item.id, "name": display_resume_name(item)}
+                for item in self.resumes.values()
+            ],
             jobs=[{"id": item.id, "title": item.title} for item in self.jobs.values()],
         )
 
@@ -86,7 +97,7 @@ class MatchingService:
         report = MatchReport(
             match_id=f"match-{uuid4().hex[:12]}",
             resume_id=resume.id,
-            resume_name=resume.name,
+            resume_name=display_resume_name(resume),
             job_id=job.id,
             job_title=job.title,
             total_score=total_score,
@@ -99,7 +110,7 @@ class MatchingService:
             assessment_level=level,
             recommendations=recommendations,
             llm_generated=llm_generated,
-            data_source="demo",
+            data_source=self.resume_data_source,
             matched_at=datetime.now(timezone.utc).isoformat(),
         )
         self.reports[report.match_id] = report
@@ -174,8 +185,6 @@ class MatchingService:
     def _get_pair(self, resume_id: str, job_id: str) -> tuple[ResumeProfile, JobProfile]:
         if resume_id not in self.resumes:
             raise KeyError(f"resume not found: {resume_id}")
-        if job_id not in self.jobs:
-            raise KeyError(f"job not found: {job_id}")
         return self.resumes[resume_id], self._get_job(job_id)
 
     def _get_job(self, job_id: str) -> JobProfile:
