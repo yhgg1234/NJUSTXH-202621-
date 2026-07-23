@@ -22,6 +22,7 @@
 | 模块/资料 | 文档位置 | 说明 |
 |------|------|------|
 | 项目任务书 | [`docs/`](docs/) | 任务书、分工表、项目相关资料 |
+| 2.1/2.2 上游数据交付契约 | [`data/schema/README.md`](data/schema/README.md) | 供 2.3、2.4、3.1、3.3 使用的字段、时间、ID、证据、聚合与验收标准 |
 | 2.3 岗位能力知识图谱 | [`backend/app/graph/README.md`](backend/app/graph/README.md) | 图谱 Schema、节点/关系格式、图谱 API、跨子任务数据契约 |
 | 3.2 简历解析 | 待补充 | 建议后续补充标准化简历画像输出格式，供 3.3 人岗匹配消费 |
 | 3.3 人岗匹配诊断与差距分析 | [`backend/app/matching/README.md`](backend/app/matching/README.md) | 匹配评分、差距分析、Spark Lite 配置、对 2.3/3.2 的数据要求 |
