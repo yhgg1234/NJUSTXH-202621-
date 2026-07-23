@@ -1,5 +1,6 @@
 """图谱应用服务。"""
 
+from datetime import date
 from typing import Protocol
 
 from app.graph.models import GraphImportRequest, GraphImportResult, GraphNode, GraphRelationship
@@ -11,6 +12,9 @@ class GraphRepository(Protocol):
     def upsert_relationships(self, relationships: list[GraphRelationship], batch_id: str) -> int: ...
     def find_missing_node_ids(self, node_ids: set[str]) -> set[str]: ...
     def get_subgraph(self, **kwargs): ...
+    def get_job_evolution_rows(
+        self, *, job_id: str, start: date | None, end: date | None, granularity: str
+    ): ...
     def get_stats(self): ...
 
 
@@ -55,7 +59,19 @@ class GraphService:
         return self.repository.upsert_relationships([relationship], "manual")
 
     def get_subgraph(self, **filters):
+        filters.setdefault("period", None)
+        filters.setdefault("as_of", None)
+        filters.setdefault("include_history", False)
         return self.repository.get_subgraph(**filters)
+
+    def get_job_evolution_rows(
+        self, *, job_id: str, start: date | None, end: date | None, granularity: str
+    ):
+        """向 3.1 提供已标准化的周期化岗位—技能关系。"""
+
+        return self.repository.get_job_evolution_rows(
+            job_id=job_id, start=start, end=end, granularity=granularity
+        )
 
     def get_stats(self):
         return self.repository.get_stats()

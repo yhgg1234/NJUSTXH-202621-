@@ -148,3 +148,24 @@ def test_reserved_properties_are_rejected():
     )
     assert response.status_code == 422
 
+
+def test_periodic_skill_relationship_requires_consistent_time_and_counts():
+    payload = {
+        "id": "job:backend|REQUIRES_SKILL|skill:python|2024Q1",
+        "type": "REQUIRES_SKILL",
+        "from_id": "job:backend",
+        "to_id": "skill:python",
+        "properties": {
+            "period_key": "2024Q1",
+            "period_start": "2024-01-01T00:00:00+08:00",
+            "skill_jd_count": 61,
+            "job_jd_count": 100,
+            "demand_ratio": 0.5,
+        },
+        "evidence_ids": ["source:2024q1"],
+    }
+    response = TestClient(app).put(
+        "/api/graph/relationships/job:backend|REQUIRES_SKILL|skill:python|2024Q1",
+        json=payload,
+    )
+    assert response.status_code == 422

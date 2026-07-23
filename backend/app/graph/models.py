@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
+import re
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -18,6 +19,8 @@ RESERVED_RELATIONSHIP_PROPERTIES = {
     "id", "confidence", "evidence_ids", "observed_at", "valid_from", "valid_to",
     "created_at", "updated_at", "last_batch_id",
 }
+_PERIOD_KEY_PATTERN = re.compile(r"^(?P<year>\d{4})(?:(?P<quarter>Q[1-4])|-(?P<month>0[1-9]|1[0-2]))$")
+_SKILL_RELATIONSHIP_TYPES = {"REQUIRES_SKILL", "BONUS_SKILL"}
 
 
 class NodeType(str, Enum):
@@ -97,7 +100,83 @@ class GraphRelationship(BaseModel):
         reserved = RESERVED_RELATIONSHIP_PROPERTIES.intersection(self.properties)
         if reserved:
             raise ValueError(f"properties contains reserved keys: {', '.join(sorted(reserved))}")
+        self._validate_skill_snapshot()
         return self
+
+    def _validate_skill_snapshot(self) -> None:
+        """校验 3.1 使用的周期快照，静态 2.3 关系仍可不带周期字段导入。"""
+
+        if self.type.value not in _SKILL_RELATIONSHIP_TYPES:
+            return
+        temporal_keys = {"period_key", "period_start", "period_end", "skill_jd_count", "job_jd_count", "demand_ratio"}
+        supplied = temporal_keys.intersection(self.properties)
+        if not supplied:
+            return
+        required = {"period_key", "period_start", "skill_jd_count", "job_jd_count", "demand_ratio"}
+        missing = required - set(self.properties)
+        if missing:
+            raise ValueError(
+                "periodic skill relationship is missing required properties: "
+                + ", ".join(sorted(missing))
+            )
+        if not self.evidence_ids:
+            raise ValueError("periodic skill relationship requires at least one evidence_id")
+
+        period_key = str(self.properties["period_key"])
+        match = _PERIOD_KEY_PATTERN.fullmatch(period_key)
+        if not match:
+            raise ValueError("period_key must use YYYY-MM or YYYYQ1 through YYYYQ4")
+        period_start = _parse_iso_datetime(self.properties["period_start"], "period_start")
+        if "period_end" in self.properties:
+            period_end = _parse_iso_datetime(self.properties["period_end"], "period_end")
+            if period_end <= period_start:
+                raise ValueError("period_end must be later than period_start")
+        expected_month = int(match.group("month") or ((int(match.group("quarter")[-1]) - 1) * 3 + 1))
+        if period_start.year != int(match.group("year")) or period_start.month != expected_month:
+            raise ValueError("period_start must match the start of period_key")
+
+        skill_jd_count = _non_negative_int(self.properties["skill_jd_count"], "skill_jd_count")
+        job_jd_count = _non_negative_int(self.properties["job_jd_count"], "job_jd_count")
+        if skill_jd_count > job_jd_count:
+            raise ValueError("skill_jd_count must not exceed job_jd_count")
+        demand_ratio = _ratio(self.properties["demand_ratio"], "demand_ratio")
+        if job_jd_count and abs(demand_ratio - skill_jd_count / job_jd_count) > 0.001:
+            raise ValueError("demand_ratio must equal skill_jd_count / job_jd_count within 0.001")
+
+
+def _parse_iso_datetime(value: Any, field_name: str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be an ISO-8601 datetime") from exc
+    raise ValueError(f"{field_name} must be an ISO-8601 datetime")
+
+
+def _non_negative_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a non-negative integer") from exc
+    if parsed < 0 or parsed != value:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    return parsed
+
+
+def _ratio(value: Any, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number between 0 and 1")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number between 0 and 1") from exc
+    if not 0 <= parsed <= 1:
+        raise ValueError(f"{field_name} must be a number between 0 and 1")
+    return parsed
 
 
 class GraphImportRequest(BaseModel):

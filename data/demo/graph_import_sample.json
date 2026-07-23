@@ -45,7 +45,9 @@
       "properties": {
         "channel": "招聘平台",
         "url": "https://example.invalid/jobs/001",
-        "content_hash": "sha256:demo"
+        "content_hash": "sha256:demo",
+        "published_at": "2026-06-18T09:00:00+08:00",
+        "crawled_at": "2026-06-20T08:00:00+08:00"
       },
       "confidence": 1.0
     }
@@ -56,7 +58,16 @@
       "type": "REQUIRES_SKILL",
       "from_id": "job:ai-agent-engineer",
       "to_id": "skill:python",
-      "properties": {"importance": 0.95, "frequency": 18},
+      "properties": {
+        "period_key": "2026-06",
+        "period_start": "2026-06-01T00:00:00+08:00",
+        "period_end": "2026-07-01T00:00:00+08:00",
+        "importance": 0.95,
+        "frequency": 18,
+        "skill_jd_count": 18,
+        "job_jd_count": 30,
+        "demand_ratio": 0.6
+      },
       "confidence": 0.96,
       "evidence_ids": ["source:jd-001"],
       "observed_at": "2026-06-20T08:00:00+08:00",
@@ -85,4 +96,3 @@
     }
   ]
 }
-

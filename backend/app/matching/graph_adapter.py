@@ -23,6 +23,9 @@ def load_job_profile_from_graph(job_id: str) -> JobProfile | None:
             tech_stack=None,
             level=None,
             industry=None,
+            period=None,
+            as_of=None,
+            include_history=False,
             limit=120,
         )
     except Exception as exc:  # noqa: BLE001 - 图谱服务不可用时允许降级

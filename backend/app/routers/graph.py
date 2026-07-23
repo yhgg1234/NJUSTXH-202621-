@@ -1,5 +1,6 @@
 """知识图谱 REST API。"""
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -64,6 +65,9 @@ def get_subgraph(
     tech_stack: str | None = None,
     level: str | None = None,
     industry: str | None = None,
+    period: str | None = None,
+    as_of: date | None = None,
+    include_history: bool = False,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> SubgraphResponse:
     result = service.get_subgraph(
@@ -71,6 +75,9 @@ def get_subgraph(
         tech_stack=tech_stack,
         level=level,
         industry=industry,
+        period=period,
+        as_of=as_of,
+        include_history=include_history,
         limit=limit,
     )
     return SubgraphResponse(**result, truncated=len(result["nodes"]) >= limit)

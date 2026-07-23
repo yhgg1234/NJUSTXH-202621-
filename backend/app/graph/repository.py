@@ -1,6 +1,7 @@
 """Neo4j 数据访问层。所有动态标签/关系类型均来自枚举白名单。"""
 
 from collections.abc import Iterable
+from datetime import date, datetime
 from typing import Any
 
 from neo4j import Driver, GraphDatabase
@@ -11,6 +12,24 @@ from app.graph.models import GraphNode, GraphRelationship, NodeType, Relationshi
 
 def _compact(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item is not None}
+
+
+_TEMPORAL_PROPERTY_KEYS = {"published_at", "crawled_at", "period_start", "period_end"}
+
+
+def _normalize_temporal_properties(properties: dict[str, Any]) -> dict[str, Any]:
+    """将契约中的 ISO 字符串统一存为 Neo4j temporal，避免查询时做字符串转换。"""
+
+    normalized = dict(properties)
+    for key in _TEMPORAL_PROPERTY_KEYS.intersection(normalized):
+        value = normalized[key]
+        if isinstance(value, str):
+            try:
+                normalized[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                # 模型校验会拒绝周期关系中的错误时间；其他扩展属性保持原样以兼容历史数据。
+                pass
+    return normalized
 
 
 def _json_compatible(value: Any) -> Any:
@@ -37,7 +56,7 @@ def _node_parameters(node: GraphNode, batch_id: str) -> dict[str, Any]:
         "valid_to": node.valid_to,
         "last_batch_id": batch_id,
     }
-    base.update(node.properties)
+    base.update(_normalize_temporal_properties(node.properties))
     return _compact(base)
 
 
@@ -51,7 +70,7 @@ def _relationship_parameters(rel: GraphRelationship, batch_id: str) -> dict[str,
         "valid_to": rel.valid_to,
         "last_batch_id": batch_id,
     }
-    base.update(rel.properties)
+    base.update(_normalize_temporal_properties(rel.properties))
     return _compact(base)
 
 
@@ -81,6 +100,10 @@ class Neo4jGraphRepository:
                 "CREATE INDEX graph_name IF NOT EXISTS FOR (n:GraphEntity) ON (n.name)",
                 "CREATE INDEX job_level IF NOT EXISTS FOR (n:Job) ON (n.level)",
                 "CREATE INDEX observed_at IF NOT EXISTS FOR (n:GraphEntity) ON (n.observed_at)",
+                "CREATE INDEX requires_skill_period IF NOT EXISTS "
+                "FOR ()-[r:REQUIRES_SKILL]-() ON (r.period_key)",
+                "CREATE INDEX bonus_skill_period IF NOT EXISTS "
+                "FOR ()-[r:BONUS_SKILL]-() ON (r.period_key)",
             ]
         )
         with self.driver.session(database=settings.NEO4J_DATABASE) as session:
@@ -145,6 +168,9 @@ class Neo4jGraphRepository:
         tech_stack: str | None,
         level: str | None,
         industry: str | None,
+        period: str | None,
+        as_of: date | None,
+        include_history: bool,
         limit: int,
     ) -> dict[str, Any]:
         query = """
@@ -160,6 +186,18 @@ class Neo4jGraphRepository:
           })
         WITH job LIMIT $limit
         OPTIONAL MATCH path=(job)-[r]-(neighbor:GraphEntity)
+        WHERE r IS NULL
+          OR $include_history
+          OR type(r) NOT IN ['REQUIRES_SKILL', 'BONUS_SKILL']
+          OR ($period IS NOT NULL AND r.period_key = $period)
+          OR ($as_of IS NOT NULL
+              AND coalesce(r.valid_from, r.period_start, r.observed_at) <= datetime($as_of)
+              AND (r.valid_to IS NULL OR r.valid_to > datetime($as_of)))
+          OR ($period IS NULL AND $as_of IS NULL AND NOT EXISTS {
+              MATCH (job)-[newer:REQUIRES_SKILL|BONUS_SKILL]-(neighbor)
+              WHERE coalesce(newer.valid_from, newer.period_start, newer.observed_at)
+                    > coalesce(r.valid_from, r.period_start, r.observed_at)
+          })
         WITH collect(DISTINCT job) + collect(DISTINCT neighbor) AS raw_nodes,
              collect(DISTINCT r) AS relationships
         UNWIND raw_nodes AS node
@@ -179,6 +217,9 @@ class Neo4jGraphRepository:
             "tech_stack": tech_stack,
             "level": level,
             "industry": industry,
+            "period": period,
+            "as_of": as_of.isoformat() if as_of else None,
+            "include_history": include_history,
             "limit": limit,
         }
         with self.driver.session(database=settings.NEO4J_DATABASE) as session:
@@ -188,6 +229,54 @@ class Neo4jGraphRepository:
             "links": record["links"] if record else [],
         }
         return _json_compatible(result)
+
+    def get_job_evolution_rows(
+        self,
+        *,
+        job_id: str,
+        start: date | None,
+        end: date | None,
+        granularity: str,
+    ) -> list[dict[str, Any]]:
+        """读取 3.1 所需的岗位—技能周期关系，不在图层计算趋势。"""
+
+        query = """
+        MATCH (job:Job {id: $job_id})-[r:REQUIRES_SKILL|BONUS_SKILL]->(skill:Skill)
+        WITH job, skill, r, coalesce(r.valid_from, r.period_start, r.observed_at) AS period_at
+        WHERE period_at IS NOT NULL
+          AND ($start IS NULL OR period_at >= datetime($start))
+          AND ($end IS NULL OR period_at < datetime($end))
+        RETURN CASE WHEN $granularity = 'monthly'
+                    THEN toString(period_at.year) + '-' + right('0' + toString(period_at.month), 2)
+                    ELSE toString(period_at.year) + 'Q' + toString(toInteger((period_at.month - 1) / 3) + 1)
+               END AS period,
+               toString(period_at) AS period_start,
+               job.id AS job_id,
+               job.name AS job_name,
+               skill.id AS skill_id,
+               skill.name AS skill_name,
+               type(r) AS relationship_type,
+               coalesce(r.skill_jd_count, r.frequency, 0) AS skill_jd_count,
+               coalesce(r.job_jd_count, 0) AS job_jd_count,
+               r.demand_ratio AS demand_ratio,
+               coalesce(r.importance, 0) AS importance,
+               coalesce(r.confidence, 1.0) AS confidence,
+               coalesce(r.evidence_ids, []) AS evidence_ids
+        ORDER BY period_at, skill.name
+        """
+        # API 的 end 是包含端点；这里转为下一天的半开区间，避免漏掉结束日。
+        end_exclusive = None
+        if end is not None:
+            end_exclusive = date.fromordinal(end.toordinal() + 1)
+        parameters = {
+            "job_id": job_id,
+            "start": start.isoformat() if start else None,
+            "end": end_exclusive.isoformat() if end_exclusive else None,
+            "granularity": granularity,
+        }
+        with self.driver.session(database=settings.NEO4J_DATABASE) as session:
+            records = session.run(query, **parameters)
+            return [_json_compatible(dict(record)) for record in records]
 
     def get_stats(self) -> dict[str, Any]:
         query = """
