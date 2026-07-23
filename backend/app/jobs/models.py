@@ -1,8 +1,9 @@
-"""岗位管理 —— 岗位定义、检索、新岗位发现、演化分析 的领域模型"""
+"""岗位管理 —— 岗位定义、检索、新岗位发现、演化分析 的领域模型。"""
 
-from typing import Any
+from datetime import date
+from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── 岗位定义 ──
@@ -107,35 +108,110 @@ class NewJobDiscoveryResponse(BaseModel):
 
 # ── 岗位演化 ──
 
+class TimeGranularity(str, Enum):
+    """3.1 支持的时间切片粒度。"""
+
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+
+
+class SkillChangeType(str, Enum):
+    """相邻时间切片之间的能力变化类型。"""
+
+    ADDED = "added"
+    REMOVED = "removed"
+    INCREASED = "increased"
+    DECREASED = "decreased"
+
+
 class JobEvolutionQuery(BaseModel):
     """岗位演化查询"""
+
     job_id: str
-    granularity: str = Field(default="quarterly", pattern=r"^(monthly|quarterly)$")
-    time_range: tuple[str, str] | None = None
+    granularity: TimeGranularity = TimeGranularity.QUARTERLY
+    time_range: tuple[date, date] | None = None
+    top_n: int = Field(default=10, ge=1, le=30)
+    change_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
+    prediction_horizon_months: int = Field(default=6, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "JobEvolutionQuery":
+        if self.time_range and self.time_range[0] > self.time_range[1]:
+            raise ValueError("time_range start must not be later than end")
+        return self
+
+
+class SkillMetric(BaseModel):
+    """一个岗位技能在一个时间切片中的聚合指标。"""
+
+    skill_id: str
+    skill_name: str
+    required: bool = True
+    skill_jd_count: int = Field(default=0, ge=0)
+    job_jd_count: int = Field(default=0, ge=0)
+    demand_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    importance: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class SkillChange(BaseModel):
     """技能变化项"""
+
+    skill_id: str
     skill_name: str
-    change_type: str
-    previous_weight: float | None = None
-    current_weight: float | None = None
-    evidence: str | None = None
+    change_type: SkillChangeType
+    previous_demand_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    current_demand_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    delta: float = 0.0
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class SkillTrend(BaseModel):
+    """跨时间范围的技能趋势摘要。"""
+
+    skill_id: str
+    skill_name: str
+    first_demand_ratio: float = Field(ge=0.0, le=1.0)
+    latest_demand_ratio: float = Field(ge=0.0, le=1.0)
+    delta: float
+
+
+class EvolutionPrediction(BaseModel):
+    """基于历史切片的轻量趋势外推结果。"""
+
+    available: bool
+    model: str | None = None
+    horizon_months: int = Field(default=6, ge=1, le=12)
+    reason: str | None = None
+    rising_skills: list[str] = Field(default_factory=list)
+
+
+class EvolutionDataQuality(BaseModel):
+    """向前端暴露样本覆盖与数据限制，避免把低质量数据解释为趋势。"""
+
+    period_count: int = Field(ge=0)
+    total_jd_count: int = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class JobEvolutionPoint(BaseModel):
     """单个时间点的岗位快照"""
+
     period: str
-    skill_set: list[dict[str, Any]] = Field(default_factory=list)
+    period_start: date | None = None
+    skill_set: list[SkillMetric] = Field(default_factory=list)
     jd_count: int = 0
     changes_from_previous: list[SkillChange] = Field(default_factory=list)
 
 
 class JobEvolutionResponse(BaseModel):
     """岗位演化分析结果"""
+
     job_id: str
     job_title: str
     timeline: list[JobEvolutionPoint]
-    hot_trends: list[dict[str, Any]] = Field(default_factory=list)
-    cold_trends: list[dict[str, Any]] = Field(default_factory=list)
-    prediction_6m: list[str] = Field(default_factory=list)
+    hot_trends: list[SkillTrend] = Field(default_factory=list)
+    cold_trends: list[SkillTrend] = Field(default_factory=list)
+    prediction: EvolutionPrediction
+    data_quality: EvolutionDataQuality
