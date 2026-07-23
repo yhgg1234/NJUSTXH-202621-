@@ -8,7 +8,7 @@ export default {
   deleteJob: (id) => apiClient.delete(`/jobs/${id}`),
   discoverNewJobs: (data) => apiClient.post('/jobs/discover-new', data),
   analyzeEvolution: (data) => apiClient.post('/jobs/evolution', data),
-  getEvolutionTimeline: (id) => apiClient.get(`/jobs/${id}/evolution-timeline`),
+  getEvolutionTimeline: (id, params) => apiClient.get(`/jobs/${id}/evolution-timeline`, { params }),
   getHotSkills: () => apiClient.get('/jobs/skills/hot'),
   getSkillTrend: (name) => apiClient.get(`/jobs/skills/${name}/trend`),
 }
