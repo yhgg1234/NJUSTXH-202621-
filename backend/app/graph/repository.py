@@ -153,6 +153,46 @@ class Neo4jGraphRepository:
                 total += session.run(query, rows=rows).single()["count"]
         return total
 
+    def delete_stale_skill_snapshot_relationships(
+        self, relationships: Iterable[GraphRelationship]
+    ) -> int:
+        """按岗位和周期删除完整重算后不再出现的旧技能关系。"""
+
+        scopes: dict[tuple[str, str], set[str]] = {}
+        skill_types = {
+            RelationshipType.REQUIRES_SKILL,
+            RelationshipType.BONUS_SKILL,
+        }
+        for relationship in relationships:
+            period_key = relationship.properties.get("period_key")
+            if relationship.type not in skill_types or not period_key:
+                continue
+            scopes.setdefault(
+                (relationship.from_id, str(period_key)), set()
+            ).add(relationship.id)
+        if not scopes:
+            return 0
+
+        rows = [
+            {
+                "job_id": job_id,
+                "period_key": period_key,
+                "relationship_ids": sorted(relationship_ids),
+            }
+            for (job_id, period_key), relationship_ids in scopes.items()
+        ]
+        query = """
+        UNWIND $rows AS row
+        MATCH (:Job {id: row.job_id})-[r:REQUIRES_SKILL|BONUS_SKILL]->(:Skill)
+        WHERE r.period_key = row.period_key
+          AND NOT r.id IN row.relationship_ids
+        DELETE r
+        RETURN count(r) AS count
+        """
+        with self.driver.session(database=settings.NEO4J_DATABASE) as session:
+            record = session.run(query, rows=rows).single()
+        return record["count"] if record else 0
+
     def find_missing_node_ids(self, node_ids: set[str]) -> set[str]:
         if not node_ids:
             return set()

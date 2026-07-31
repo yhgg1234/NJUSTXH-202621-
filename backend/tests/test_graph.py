@@ -26,6 +26,35 @@ class FakeGraphRepository:
             self.relationships[relationship.id] = relationship
         return len(relationships)
 
+    def delete_stale_skill_snapshot_relationships(self, relationships):
+        scopes = {}
+        for relationship in relationships:
+            period_key = relationship.properties.get("period_key")
+            if period_key:
+                scopes.setdefault((relationship.from_id, period_key), set()).add(
+                    relationship.id
+                )
+        stale_ids = [
+            relationship_id
+            for relationship_id, relationship in self.relationships.items()
+            if relationship.properties.get("period_key")
+            and (
+                relationship.from_id,
+                relationship.properties["period_key"],
+            )
+            in scopes
+            and relationship_id
+            not in scopes[
+                (
+                    relationship.from_id,
+                    relationship.properties["period_key"],
+                )
+            ]
+        ]
+        for relationship_id in stale_ids:
+            del self.relationships[relationship_id]
+        return len(stale_ids)
+
     def find_missing_node_ids(self, node_ids):
         return set(node_ids) - set(self.nodes)
 
@@ -169,3 +198,56 @@ def test_periodic_skill_relationship_requires_consistent_time_and_counts():
         json=payload,
     )
     assert response.status_code == 422
+
+
+def test_periodic_import_replaces_stale_relationships_in_same_job_period():
+    repository = FakeGraphRepository()
+    service = GraphService(repository)
+    nodes = [
+        GraphNode(id="job:backend", type="Job", name="后端工程师"),
+        GraphNode(id="skill:python", type="Skill", name="Python"),
+        GraphNode(id="skill:java", type="Skill", name="Java"),
+    ]
+
+    def periodic_relationship(skill_id: str, count: int) -> GraphRelationship:
+        return GraphRelationship(
+            id=f"job:backend|REQUIRES_SKILL|{skill_id}|2024Q1",
+            type="REQUIRES_SKILL",
+            from_id="job:backend",
+            to_id=skill_id,
+            properties={
+                "period_key": "2024Q1",
+                "period_start": "2024-01-01T00:00:00+08:00",
+                "skill_jd_count": count,
+                "job_jd_count": 100,
+                "demand_ratio": count / 100,
+            },
+            evidence_ids=["source:2024q1"],
+        )
+
+    service.import_graph(
+        GraphImportRequest(
+            batch_id="period-v1",
+            nodes=nodes,
+            relationships=[
+                periodic_relationship("skill:python", 60),
+                periodic_relationship("skill:java", 50),
+            ],
+        )
+    )
+    service.import_graph(
+        GraphImportRequest(
+            batch_id="period-v2",
+            relationships=[periodic_relationship("skill:python", 70)],
+        )
+    )
+
+    assert set(repository.relationships) == {
+        "job:backend|REQUIRES_SKILL|skill:python|2024Q1"
+    }
+    assert (
+        repository.relationships[
+            "job:backend|REQUIRES_SKILL|skill:python|2024Q1"
+        ].properties["skill_jd_count"]
+        == 70
+    )

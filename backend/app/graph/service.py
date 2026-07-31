@@ -10,6 +10,9 @@ class GraphRepository(Protocol):
     def initialize_schema(self) -> list[str]: ...
     def upsert_nodes(self, nodes: list[GraphNode], batch_id: str) -> int: ...
     def upsert_relationships(self, relationships: list[GraphRelationship], batch_id: str) -> int: ...
+    def delete_stale_skill_snapshot_relationships(
+        self, relationships: list[GraphRelationship]
+    ) -> int: ...
     def find_missing_node_ids(self, node_ids: set[str]) -> set[str]: ...
     def get_subgraph(self, **kwargs): ...
     def get_job_evolution_rows(
@@ -41,6 +44,9 @@ class GraphService:
         relationship_count = self.repository.upsert_relationships(
             request.relationships, request.batch_id
         )
+        # 周期数据以 (job_id, period_key) 为完整快照。先成功写入新关系，再清理
+        # 同一范围内本次未提供的旧关系，保证晚到数据重算具备幂等替换语义。
+        self.repository.delete_stale_skill_snapshot_relationships(request.relationships)
         return GraphImportResult(
             batch_id=request.batch_id,
             nodes_upserted=node_count,

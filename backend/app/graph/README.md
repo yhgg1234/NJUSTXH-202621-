@@ -148,6 +148,8 @@ Swagger 文档位于 `http://localhost:8000/docs`，Neo4j Browser 位于 `http:/
 同一周期的统计应以“完整重算快照”方式写入：晚到数据需要重新计算该周期的完整统计后
 覆盖同一关系 ID，不能把局部计数作为增量直接覆盖。
 
+`POST /api/graph/import` 将请求中每个 `(job_id, period_key)` 视为完整岗位—技能快照：新关系成功写入后，会删除该岗位该周期中本次未再提供的旧 `REQUIRES_SKILL`/`BONUS_SKILL` 关系。因此同一岗位同一周期不能拆成多个独立请求上传，否则后一个请求会替换前一个请求的技能集合；不同岗位或不同周期可以放在同一批次中。
+
 接口会对带周期字段的 `REQUIRES_SKILL` / `BONUS_SKILL` 关系执行以下校验；未通过会返回 422，而不是写入不可比较的历史数据：
 
 - `period_key` 只能是 `YYYY-MM` 或 `YYYYQ1` 到 `YYYYQ4`，且 `period_start` 必须是该切片起点；
