@@ -29,8 +29,16 @@
         <input v-model="filters.end" type="date" />
       </label>
       <label>
-        <span>每期展示技能数</span>
+        <span>跨期展示技能数</span>
         <input v-model.number="filters.top_n" type="number" min="1" max="30" />
+      </label>
+      <label>
+        <span>变化阈值（%）</span>
+        <input v-model.number="filters.change_threshold_percent" type="number" min="0" max="100" step="1" />
+      </label>
+      <label>
+        <span>预测月数</span>
+        <input v-model.number="filters.prediction_horizon_months" type="number" min="1" max="12" />
       </label>
       <button class="primary-button" :disabled="loading" type="submit">
         {{ loading ? '分析中…' : '运行分析' }}
@@ -117,6 +125,7 @@
             </div>
           </article>
         </div>
+        <div v-else-if="selectedPointIndex === 0" class="empty-state">首个周期作为基准快照，不计算相邻期变化。</div>
         <div v-else class="empty-state">该周期没有超过当前阈值的技能变化。</div>
       </section>
 
@@ -176,6 +185,8 @@ const filters = reactive({
   start: '2024-01-01',
   end: '2025-12-31',
   top_n: 10,
+  change_threshold_percent: 5,
+  prediction_horizon_months: 6,
 })
 
 let trendChart
@@ -183,15 +194,21 @@ let heatmapChart
 let resizeObserver
 
 const selectedPoint = computed(() => result.value?.timeline.find((point) => point.period === selectedPeriod.value))
+const selectedPointIndex = computed(() => result.value?.timeline.findIndex((point) => point.period === selectedPeriod.value) ?? -1)
 const periods = computed(() => result.value?.timeline.map((point) => point.period) || [])
 const topSkills = computed(() => {
   const scores = new Map()
   result.value?.timeline.forEach((point) => {
     point.skill_set.forEach((skill) => {
-      scores.set(skill.skill_name, Math.max(scores.get(skill.skill_name) || 0, skill.demand_ratio))
+      const current = scores.get(skill.skill_id)
+      scores.set(skill.skill_id, {
+        id: skill.skill_id,
+        name: skill.skill_name,
+        score: Math.max(current?.score || 0, skill.demand_ratio),
+      })
     })
   })
-  return [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, filters.top_n).map(([name]) => name)
+  return [...scores.values()].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, filters.top_n)
 })
 
 function formatRatio(value) {
@@ -208,9 +225,9 @@ function changeLabel(type) {
   return ({ added: '新增', removed: '移除', increased: '增强', decreased: '减弱' })[type] || type
 }
 
-function seriesForSkill(skillName) {
+function seriesForSkill(skillId) {
   return result.value.timeline.map((point) => {
-    const skill = point.skill_set.find((item) => item.skill_name === skillName)
+    const skill = point.skill_set.find((item) => item.skill_id === skillId)
     return skill ? Number((skill.demand_ratio * 100).toFixed(2)) : 0
   })
 }
@@ -228,28 +245,28 @@ function renderCharts() {
     grid: { left: 45, right: 20, top: 25, bottom: 58 },
     xAxis: { type: 'category', data: periods.value },
     yAxis: { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
-    series: topSkills.value.map((skillName) => ({
-      name: skillName,
+    series: topSkills.value.map((skill) => ({
+      name: skill.name,
       type: 'line',
       smooth: true,
       showSymbol: false,
-      data: seriesForSkill(skillName),
+      data: seriesForSkill(skill.id),
     })),
   }, true)
 
   const heatmapData = []
-  topSkills.value.forEach((skillName, skillIndex) => {
+  topSkills.value.forEach((selectedSkill, skillIndex) => {
     periods.value.forEach((period, periodIndex) => {
       const point = result.value.timeline[periodIndex]
-      const skill = point.skill_set.find((item) => item.skill_name === skillName)
+      const skill = point.skill_set.find((item) => item.skill_id === selectedSkill.id)
       heatmapData.push([periodIndex, skillIndex, skill ? Number((skill.demand_ratio * 100).toFixed(2)) : 0])
     })
   })
   heatmapChart.setOption({
-    tooltip: { position: 'top', formatter: (item) => `${topSkills.value[item.value[1]]}<br/>${periods.value[item.value[0]]}: ${item.value[2]}%` },
+    tooltip: { position: 'top', formatter: (item) => `${topSkills.value[item.value[1]].name}<br/>${periods.value[item.value[0]]}: ${item.value[2]}%` },
     grid: { left: 100, right: 35, top: 20, bottom: 44 },
     xAxis: { type: 'category', data: periods.value, splitArea: { show: true } },
-    yAxis: { type: 'category', data: topSkills.value, splitArea: { show: true } },
+    yAxis: { type: 'category', data: topSkills.value.map((skill) => skill.name), splitArea: { show: true } },
     visualMap: { min: 0, max: 100, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, inRange: { color: ['#eff6ff', '#60a5fa', '#1d4ed8'] } },
     series: [{ type: 'heatmap', data: heatmapData, label: { show: true, formatter: (item) => item.value[2] ? `${item.value[2]}%` : '' } }],
   }, true)
@@ -264,6 +281,8 @@ async function loadEvolution() {
       granularity: filters.granularity,
       time_range: filters.start && filters.end ? [filters.start, filters.end] : null,
       top_n: filters.top_n,
+      change_threshold: filters.change_threshold_percent / 100,
+      prediction_horizon_months: filters.prediction_horizon_months,
     })
     result.value = data
     selectedPeriod.value = data.timeline.at(-1)?.period || ''
@@ -300,7 +319,7 @@ onBeforeUnmount(() => {
 h2, h3, p { margin-top: 0; }
 h2 { margin-bottom: 8px; color: #0f172a; font-size: 26px; }
 .page-heading p:last-child { margin-bottom: 0; color: #64748b; }
-.filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(4, minmax(120px, 1fr)) auto; gap: 12px; align-items: end; padding: 18px; border: 1px solid #dbeafe; border-radius: 16px; background: #f8fbff; }
+.filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(6, minmax(105px, 1fr)) auto; gap: 12px; align-items: end; padding: 18px; border: 1px solid #dbeafe; border-radius: 16px; background: #f8fbff; }
 label span { display: block; margin-bottom: 6px; color: #475569; font-size: 12px; font-weight: 700; }
 input, select { box-sizing: border-box; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 10px; color: #0f172a; background: #fff; font: inherit; }
 input:focus, select:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
