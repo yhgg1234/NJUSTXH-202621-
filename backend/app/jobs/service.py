@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime
 from math import fsum
+import re
 from typing import Any, Protocol
 
 from app.jobs.models import (
@@ -66,22 +67,36 @@ class JobEvolutionService:
             ),
         )
 
+        finalized_snapshots = [
+            self._finalize_metrics(snapshots[period]["skills"])
+            for period in ordered_periods
+        ]
+        displayed_skill_ids = self._select_display_skills(
+            finalized_snapshots, query.top_n
+        )
+
         timeline: list[JobEvolutionPoint] = []
-        previous_metrics: dict[str, SkillMetric] = {}
-        full_snapshot_metrics: list[dict[str, SkillMetric]] = []
+        previous_metrics: dict[str, SkillMetric] | None = None
         total_jd_count = 0
-        for period in ordered_periods:
+        for period, metrics in zip(ordered_periods, finalized_snapshots, strict=True):
             snapshot = snapshots[period]
-            metrics = self._finalize_metrics(snapshot["skills"])
-            full_snapshot_metrics.append(metrics)
             current_jd_count = int(snapshot["job_jd_count"])
             total_jd_count += current_jd_count
-            changes = self._changes_between(
-                previous_metrics, metrics, query.change_threshold
+            changes = (
+                []
+                if previous_metrics is None
+                else self._changes_between(
+                    previous_metrics, metrics, query.change_threshold
+                )
             )
             displayed_skills = sorted(
-                metrics.values(), key=lambda item: (-item.demand_ratio, item.skill_name)
-            )[: query.top_n]
+                (
+                    metrics[skill_id]
+                    for skill_id in displayed_skill_ids
+                    if skill_id in metrics
+                ),
+                key=lambda item: (-item.demand_ratio, item.skill_name),
+            )
             timeline.append(
                 JobEvolutionPoint(
                     period=period,
@@ -93,9 +108,20 @@ class JobEvolutionService:
             )
             previous_metrics = metrics
 
-        quality = self._quality_report(timeline, rows, total_jd_count)
-        trends = self._build_trends(full_snapshot_metrics, query.top_n)
-        prediction = self._predict(full_snapshot_metrics, query.prediction_horizon_months)
+        quality = self._quality_report(
+            timeline,
+            rows,
+            total_jd_count,
+            ordered_periods,
+            query.granularity.value,
+        )
+        trends = self._build_trends(finalized_snapshots, query.top_n)
+        prediction = self._predict(
+            ordered_periods,
+            finalized_snapshots,
+            query.granularity.value,
+            query.prediction_horizon_months,
+        )
         return JobEvolutionResponse(
             job_id=query.job_id,
             job_title=job_title,
@@ -145,8 +171,11 @@ class JobEvolutionService:
             )
             skill["required"] = skill["required"] or row.get("relationship_type") != "BONUS_SKILL"
             skill["job_jd_count"] = max(skill["job_jd_count"], job_jd_count)
-            skill["skill_jd_count"] += _to_int(
-                row.get("skill_jd_count", row.get("frequency", 0))
+            # 契约规定同一岗位、技能、周期只能有一条关系。使用最大值而非累加，
+            # 避免异常重复行把去重 JD 数二次计数；质量报告会同时给出告警。
+            skill["skill_jd_count"] = max(
+                skill["skill_jd_count"],
+                _to_int(row.get("skill_jd_count", row.get("frequency", 0))),
             )
             if row.get("demand_ratio") is not None:
                 skill["raw_ratios"].append(_to_float(row.get("demand_ratio")))
@@ -182,6 +211,22 @@ class JobEvolutionService:
                 evidence_ids=sorted(value["evidence_ids"]),
             )
         return metrics
+
+    def _select_display_skills(
+        self, snapshots: list[dict[str, SkillMetric]], top_n: int
+    ) -> list[str]:
+        """在整个查询区间选择稳定的 Top N，避免每期截断制造虚假归零。"""
+
+        scores: dict[str, float] = {}
+        names: dict[str, str] = {}
+        for snapshot in snapshots:
+            for skill_id, metric in snapshot.items():
+                scores[skill_id] = max(scores.get(skill_id, 0.0), metric.demand_ratio)
+                names[skill_id] = metric.skill_name
+        return sorted(
+            scores,
+            key=lambda skill_id: (-scores[skill_id], names[skill_id], skill_id),
+        )[:top_n]
 
     def _changes_between(
         self,
@@ -272,26 +317,45 @@ class JobEvolutionService:
         return {"hot": hot, "cold": cold}
 
     def _predict(
-        self, snapshots: list[dict[str, SkillMetric]], horizon_months: int
+        self,
+        periods: list[str],
+        snapshots: list[dict[str, SkillMetric]],
+        granularity: str,
+        horizon_months: int,
     ) -> EvolutionPrediction:
         minimum_periods = 6
-        if len(snapshots) < minimum_periods:
+        contiguous_periods, contiguous_snapshots = _latest_contiguous_segment(
+            periods, snapshots, granularity
+        )
+        if len(contiguous_snapshots) < minimum_periods:
             return EvolutionPrediction(
                 available=False,
                 horizon_months=horizon_months,
-                reason=f"当前仅有 {len(snapshots)} 个时间周期，至少需要 {minimum_periods} 期才提供趋势外推。",
+                reason=(
+                    f"最新连续时间段仅有 {len(contiguous_periods)} 个周期，"
+                    f"至少需要 {minimum_periods} 个连续周期才提供趋势外推。"
+                ),
             )
-        skill_ids = set().union(*(snapshot.keys() for snapshot in snapshots))
+        skill_ids = set().union(*(snapshot.keys() for snapshot in contiguous_snapshots))
         candidates: list[tuple[float, str]] = []
         for skill_id in skill_ids:
-            values = [snapshot.get(skill_id, _EMPTY_METRIC).demand_ratio for snapshot in snapshots]
+            values = [
+                snapshot.get(skill_id, _EMPTY_METRIC).demand_ratio
+                for snapshot in contiguous_snapshots
+            ]
             slope = _linear_slope(values)
             if slope <= 0:
                 continue
             latest = values[-1]
-            projected = min(1.0, latest + slope * min(horizon_months, len(values)))
+            months_per_period = 1 if granularity == "monthly" else 3
+            horizon_periods = horizon_months / months_per_period
+            projected = min(1.0, latest + slope * horizon_periods)
             name = next(
-                (snapshot[skill_id].skill_name for snapshot in reversed(snapshots) if skill_id in snapshot),
+                (
+                    snapshot[skill_id].skill_name
+                    for snapshot in reversed(contiguous_snapshots)
+                    if skill_id in snapshot
+                ),
                 skill_id,
             )
             candidates.append((projected - latest, name))
@@ -309,18 +373,41 @@ class JobEvolutionService:
         timeline: list[JobEvolutionPoint],
         rows: list[dict[str, Any]],
         total_jd_count: int,
+        periods: list[str],
+        granularity: str,
     ) -> EvolutionDataQuality:
         warnings: list[str] = []
         if not timeline:
             warnings.append("未找到可用的周期化岗位—技能关系，请先导入带 period_key 和样本量的历史数据。")
         if 0 < len(timeline) < 4:
             warnings.append("时间周期少于 4 期，只适合快照对比，不能作为完整演化结论。")
+        if len(periods) >= 2 and not _periods_are_consecutive(periods, granularity):
+            warnings.append("时间周期不连续；缺失周期按数据空缺处理，不能据此形成连续演化结论。")
         if any(point.jd_count == 0 for point in timeline):
             warnings.append("部分周期缺少岗位 JD 总量，需求占比可能退化为抽取频次。")
+        if any(0 < point.jd_count < 20 for point in timeline):
+            warnings.append("部分周期有效去重 JD 少于 20 条，趋势稳定性可能不足。")
         if rows and any(not _to_date(row.get("period_start")) for row in rows):
             warnings.append("部分关系缺少可解析的周期起点；请检查 period_start/valid_from 的 ISO-8601 格式。")
-        if rows and not any(row.get("evidence_ids") for row in rows):
-            warnings.append("当前结果缺少证据来源，变化项无法完成数据溯源。")
+        if rows and any(not row.get("evidence_ids") for row in rows):
+            warnings.append("部分周期关系缺少证据来源，相关变化项无法完成数据溯源。")
+        semantic_keys = [
+            (
+                str(row.get("period") or "").strip(),
+                str(row.get("skill_id") or "").strip(),
+            )
+            for row in rows
+            if row.get("period") and row.get("skill_id")
+        ]
+        if any(count > 1 for count in Counter(semantic_keys).values()):
+            warnings.append("发现同一技能在同一周期存在重复关系；已按最大去重 JD 数计算，请检查 C 层唯一性。")
+        counts_by_period: dict[str, set[int]] = defaultdict(set)
+        for row in rows:
+            period = str(row.get("period") or "").strip()
+            if period:
+                counts_by_period[period].add(_to_int(row.get("job_jd_count")))
+        if any(len(counts) > 1 for counts in counts_by_period.values()):
+            warnings.append("同一周期内的 job_jd_count 不一致；当前采用最大值，请重新核对周期快照。")
         return EvolutionDataQuality(
             period_count=len(timeline), total_jd_count=total_jd_count, warnings=warnings
         )
@@ -373,3 +460,47 @@ def _linear_slope(values: list[float]) -> float:
         (index - mean_x) * (value - mean_y) for index, value in enumerate(values)
     )
     return numerator / denominator
+
+
+_MONTHLY_PERIOD = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+_QUARTERLY_PERIOD = re.compile(r"^(\d{4})Q([1-4])$")
+
+
+def _period_index(period: str, granularity: str) -> int | None:
+    pattern = _MONTHLY_PERIOD if granularity == "monthly" else _QUARTERLY_PERIOD
+    match = pattern.fullmatch(period)
+    if not match:
+        return None
+    year, unit = (int(value) for value in match.groups())
+    if granularity == "monthly":
+        return year * 12 + unit - 1
+    return year * 4 + unit - 1
+
+
+def _periods_are_consecutive(periods: list[str], granularity: str) -> bool:
+    indices = [_period_index(period, granularity) for period in periods]
+    return all(
+        current is not None and following == current + 1
+        for current, following in zip(indices, indices[1:])
+    )
+
+
+def _latest_contiguous_segment(
+    periods: list[str],
+    snapshots: list[dict[str, SkillMetric]],
+    granularity: str,
+) -> tuple[list[str], list[dict[str, SkillMetric]]]:
+    if not periods:
+        return [], []
+    indices = [_period_index(period, granularity) for period in periods]
+    start = len(periods) - 1
+    while (
+        start > 0
+        and indices[start] is not None
+        and indices[start - 1] is not None
+        and indices[start] == indices[start - 1] + 1
+    ):
+        start -= 1
+    if indices[-1] is None:
+        return [], []
+    return periods[start:], snapshots[start:]

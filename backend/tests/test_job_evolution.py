@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.jobs.dependencies import get_job_evolution_service
 from app.jobs.models import JobEvolutionQuery, TimeGranularity
 from app.jobs.service import JobEvolutionService
+from app.graph.repository import Neo4jGraphRepository
 from app.main import app
 
 
@@ -62,10 +63,11 @@ def test_evolution_builds_snapshots_changes_and_quality_warning():
 
     assert [item.period for item in result.timeline] == ["2024Q1", "2024Q2", "2024Q3", "2024Q4"]
     assert result.timeline[0].skill_set[0].demand_ratio == 0.5
+    assert result.timeline[0].changes_from_previous == []
     change_types = {item.skill_name: item.change_type.value for item in result.timeline[2].changes_from_previous}
     assert change_types["RAG"] == "added"
     assert change_types["Java"] == "removed"
-    assert result.hot_trends[0].skill_name == "Python"
+    assert result.hot_trends[0].skill_name == "RAG"
     assert result.cold_trends[0].skill_name == "Java"
     assert result.prediction.available is False
     assert result.data_quality.period_count == 4
@@ -94,6 +96,60 @@ def test_evolution_enables_baseline_prediction_after_six_periods():
     assert "Python" in result.prediction.rising_skills
 
 
+def test_prediction_requires_latest_six_periods_to_be_consecutive():
+    rows = [
+        _row(
+            f"{year}Q1",
+            f"{year}-01-01T00:00:00+08:00",
+            "skill:python",
+            "Python",
+            20 + index * 10,
+        )
+        for index, year in enumerate(range(2019, 2025))
+    ]
+
+    result = JobEvolutionService(FakeEvolutionReader(rows)).analyze(
+        JobEvolutionQuery(job_id="job:backend-engineer")
+    )
+
+    assert result.prediction.available is False
+    assert "连续" in result.prediction.reason
+    assert any("时间周期不连续" in warning for warning in result.data_quality.warnings)
+
+
+def test_top_n_uses_stable_cross_period_skill_selection():
+    rows = [
+        _row("2024Q1", "2024-01-01T00:00:00+08:00", "skill:a", "A", 90),
+        _row("2024Q1", "2024-01-01T00:00:00+08:00", "skill:b", "B", 80),
+        _row("2024Q2", "2024-04-01T00:00:00+08:00", "skill:a", "A", 10),
+        _row("2024Q2", "2024-04-01T00:00:00+08:00", "skill:b", "B", 80),
+    ]
+
+    result = JobEvolutionService(FakeEvolutionReader(rows)).analyze(
+        JobEvolutionQuery(job_id="job:backend-engineer", top_n=1)
+    )
+
+    assert [[skill.skill_id for skill in point.skill_set] for point in result.timeline] == [
+        ["skill:a"],
+        ["skill:a"],
+    ]
+    assert result.timeline[1].skill_set[0].demand_ratio == 0.1
+
+
+def test_duplicate_semantic_rows_are_not_double_counted_and_are_reported():
+    duplicate = _row(
+        "2024Q1", "2024-01-01T00:00:00+08:00", "skill:python", "Python", 40
+    )
+    result = JobEvolutionService(FakeEvolutionReader([duplicate, dict(duplicate)])).analyze(
+        JobEvolutionQuery(job_id="job:backend-engineer")
+    )
+
+    metric = result.timeline[0].skill_set[0]
+    assert metric.skill_jd_count == 40
+    assert metric.demand_ratio == 0.4
+    assert any("重复关系" in warning for warning in result.data_quality.warnings)
+
+
 def test_evolution_api_uses_injected_service():
     reader = FakeEvolutionReader(_four_period_rows())
     app.dependency_overrides[get_job_evolution_service] = lambda: JobEvolutionService(reader)
@@ -111,3 +167,63 @@ def test_evolution_api_uses_injected_service():
 
     assert response.status_code == 200
     assert response.json()["data_quality"]["period_count"] == 4
+
+
+def test_get_evolution_api_accepts_prediction_horizon():
+    reader = FakeEvolutionReader(_four_period_rows())
+    app.dependency_overrides[get_job_evolution_service] = lambda: JobEvolutionService(reader)
+    try:
+        response = TestClient(app).get(
+            "/api/jobs/job:backend-engineer/evolution-timeline",
+            params={"prediction_horizon_months": 9},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["prediction"]["horizon_months"] == 9
+
+
+class _CaptureResult(list):
+    pass
+
+
+class _CaptureSession:
+    def __init__(self, driver):
+        self.driver = driver
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def run(self, query, **parameters):
+        self.driver.query = query
+        self.driver.parameters = parameters
+        return _CaptureResult()
+
+
+class _CaptureDriver:
+    def session(self, **kwargs):
+        return _CaptureSession(self)
+
+
+def test_evolution_repository_reads_only_matching_periodic_relationships():
+    driver = _CaptureDriver()
+    repository = object.__new__(Neo4jGraphRepository)
+    repository.driver = driver
+
+    rows = repository.get_job_evolution_rows(
+        job_id="job:backend-engineer",
+        start=date(2024, 1, 1),
+        end=date(2024, 12, 31),
+        granularity="quarterly",
+    )
+
+    assert rows == []
+    assert "r.period_key IS NOT NULL" in driver.query
+    assert "r.period_key AS period" in driver.query
+    assert "r.observed_at" not in driver.query
+    assert "quarterly" in driver.query
+    assert driver.parameters["end"] == "2024-12-31"

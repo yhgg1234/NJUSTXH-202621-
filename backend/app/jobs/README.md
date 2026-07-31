@@ -47,6 +47,8 @@ API 的 `time_range` 是**包含首尾日期**的日历范围，例如
 
 没有时间字段的数据仍可进入 2.3 静态图谱；在补齐/回溯 `published_at` 前，3.1 会将其排除在趋势、变化和预测样本之外。至少 4 个连续周期才展示完整演化结论，至少 6 个连续周期才开放预测基线。
 
+3.1 查询只读取具有完整周期字段、且 `period_key` 与请求粒度匹配的关系。月度请求不会把季度快照拆成月份，季度请求也不会把月度快照临时合并；粒度选择错误时应返回空结果并提示检查数据，而不是生成伪时间序列。
+
 ## 2.3 → 3.1 最小输入契约
 
 每条 `REQUIRES_SKILL` 或 `BONUS_SKILL` 周期关系必须能够提供以下信息：
@@ -108,19 +110,21 @@ curl -X POST http://localhost:8000/api/graph/import \
 - `prediction`：至少 6 个周期后才返回线性趋势基线；
 - `data_quality`：周期不足、样本量缺失、证据缺失等警告。
 
+`top_n` 在整个查询区间内统一选择技能，并在各周期返回这些技能的真实值；不会先按每期截断后把“跌出 Top N”错误解释为需求归零。第一期作为基准快照，`changes_from_previous` 固定为空。
+
 ### `GET /api/jobs/{job_id}/evolution-timeline`
 
 与 POST 返回相同结构，适合前端时间滑块刷新：
 
 ```text
-GET /api/jobs/job:backend-engineer/evolution-timeline?granularity=quarterly&start=2024-01-01&end=2025-12-31&top_n=10
+GET /api/jobs/job:backend-engineer/evolution-timeline?granularity=quarterly&start=2024-01-01&end=2025-12-31&top_n=10&change_threshold=0.05&prediction_horizon_months=6
 ```
 
 ## 实施取舍
 
 第一版实现岗位技能需求占比、相邻期差分、趋势、数据质量与线性外推。中心性、社区发现和
-复杂预测需要 Neo4j GDS 或额外分析依赖，等多期真实数据稳定后再接入；不能用少于 4 个周期的数据
-得出完整演化结论，也不应在少于 6 个周期时展示预测。
+复杂预测需要 Neo4j GDS 或额外分析依赖，等多期真实数据稳定后再接入；不能用少于 4 个连续周期的数据
+得出完整演化结论，也不应在最新连续时间段少于 6 个周期时展示预测。预测斜率以数据周期为单位，`prediction_horizon_months` 会按月度 1 个月/期、季度 3 个月/期换算。
 
 ## 测试要点
 

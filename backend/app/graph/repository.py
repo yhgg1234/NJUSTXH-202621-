@@ -188,7 +188,7 @@ class Neo4jGraphRepository:
         OPTIONAL MATCH path=(job)-[r]-(neighbor:GraphEntity)
         WHERE r IS NULL
           OR $include_history
-          OR type(r) NOT IN ['REQUIRES_SKILL', 'BONUS_SKILL']
+          OR NOT type(r) IN ['REQUIRES_SKILL', 'BONUS_SKILL']
           OR ($period IS NOT NULL AND r.period_key = $period)
           OR ($as_of IS NOT NULL
               AND coalesce(r.valid_from, r.period_start, r.observed_at) <= datetime($as_of)
@@ -242,14 +242,17 @@ class Neo4jGraphRepository:
 
         query = """
         MATCH (job:Job {id: $job_id})-[r:REQUIRES_SKILL|BONUS_SKILL]->(skill:Skill)
-        WITH job, skill, r, coalesce(r.valid_from, r.period_start, r.observed_at) AS period_at
-        WHERE period_at IS NOT NULL
-          AND ($start IS NULL OR period_at >= datetime($start))
-          AND ($end IS NULL OR period_at < datetime($end))
-        RETURN CASE WHEN $granularity = 'monthly'
-                    THEN toString(period_at.year) + '-' + right('0' + toString(period_at.month), 2)
-                    ELSE toString(period_at.year) + 'Q' + toString(toInteger((period_at.month - 1) / 3) + 1)
-               END AS period,
+        WITH job, skill, r, r.period_start AS period_at
+        WHERE r.period_key IS NOT NULL
+          AND period_at IS NOT NULL
+          AND r.skill_jd_count IS NOT NULL
+          AND r.job_jd_count IS NOT NULL
+          AND r.demand_ratio IS NOT NULL
+          AND (($granularity = 'monthly' AND r.period_key =~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+            OR ($granularity = 'quarterly' AND r.period_key =~ '^[0-9]{4}Q[1-4]$'))
+          AND ($start IS NULL OR date(period_at) >= date($start))
+          AND ($end IS NULL OR date(period_at) <= date($end))
+        RETURN r.period_key AS period,
                toString(period_at) AS period_start,
                job.id AS job_id,
                job.name AS job_name,
@@ -264,14 +267,10 @@ class Neo4jGraphRepository:
                coalesce(r.evidence_ids, []) AS evidence_ids
         ORDER BY period_at, skill.name
         """
-        # API 的 end 是包含端点；这里转为下一天的半开区间，避免漏掉结束日。
-        end_exclusive = None
-        if end is not None:
-            end_exclusive = date.fromordinal(end.toordinal() + 1)
         parameters = {
             "job_id": job_id,
             "start": start.isoformat() if start else None,
-            "end": end_exclusive.isoformat() if end_exclusive else None,
+            "end": end.isoformat() if end else None,
             "granularity": granularity,
         }
         with self.driver.session(database=settings.NEO4J_DATABASE) as session:

@@ -38,6 +38,7 @@ def get_evolution_timeline(
     end: date | None = None,
     top_n: Annotated[int, Query(ge=1, le=30)] = 10,
     change_threshold: Annotated[float, Query(ge=0.0, le=1.0)] = 0.05,
+    prediction_horizon_months: Annotated[int, Query(ge=1, le=12)] = 6,
 ) -> JobEvolutionResponse:
     """GET 形式的演化时间线，便于前端时间滑块和图表刷新。"""
 
@@ -50,6 +51,7 @@ def get_evolution_timeline(
             time_range=(start, end) if start and end else None,
             top_n=top_n,
             change_threshold=change_threshold,
+            prediction_horizon_months=prediction_horizon_months,
         )
     )
 
