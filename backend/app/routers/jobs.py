@@ -6,6 +6,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
+from app.discovery.dependencies import get_discovery_service
+from app.discovery.models import (
+    BatchAdoptRequest,
+    BatchRejectRequest,
+    BatchResult,
+    DiscoverRequest,
+    DiscoverResponse,
+    DiscoverStats,
+)
+from app.discovery.service import DiscoveryService
 from app.jobs.dependencies import get_job_evolution_service
 from app.jobs.models import (
     JobEvolutionQuery,
@@ -18,6 +28,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 _NOT_IMPL = {"message": "接口已定义，功能待实现", "status": 501}
 EvolutionService = Annotated[JobEvolutionService, Depends(get_job_evolution_service)]
+DiscoveryServiceDep = Annotated[DiscoveryService, Depends(get_discovery_service)]
 
 
 # ── 子任务 3.1：岗位动态演化 ──
@@ -96,12 +107,73 @@ def search_jobs():
     return JSONResponse(status_code=501, content=_NOT_IMPL)
 
 
-# ── 新岗位发现 ──
+# ── 子任务 2.4：新岗位发现 ──
 
-@router.post("/discover-new")
-def discover_new_jobs():
-    """新岗位自动发现"""
-    return JSONResponse(status_code=501, content=_NOT_IMPL)
+@router.post("/discover-new", response_model=DiscoverResponse)
+def discover_new_jobs(payload: DiscoverRequest, service: DiscoveryServiceDep) -> DiscoverResponse:
+    """执行新岗位发现分析，返回候选新岗位列表。"""
+    return service.discover(payload)
+
+
+@router.get("/discover-new/stats", response_model=DiscoverStats)
+def get_discover_stats(service: DiscoveryServiceDep) -> DiscoverStats:
+    """获取新岗位发现统计概览。"""
+    return service.get_stats()
+
+
+@router.get("/discover-new/{candidate_id}")
+def get_discover_candidate(candidate_id: str, service: DiscoveryServiceDep):
+    """查看单个候选新岗位详情。"""
+    candidate = service.get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="候选新岗位不存在")
+    return candidate
+
+
+@router.post("/discover-new/{candidate_id}/adopt")
+def adopt_candidate(
+    candidate_id: str,
+    create_graph_nodes: bool = True,
+    service: DiscoveryServiceDep = Depends(get_discovery_service),
+):
+    """采纳候选新岗位，可选择是否写入图谱。"""
+    result = service.adopt(candidate_id, create_graph_nodes)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    return result
+
+
+@router.post("/discover-new/{candidate_id}/reject")
+def reject_candidate(candidate_id: str, service: DiscoveryServiceDep = Depends(get_discovery_service)):
+    """否决候选新岗位。"""
+    result = service.reject(candidate_id)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    return result
+
+
+@router.post("/discover-new/batch/adopt", response_model=BatchResult)
+def batch_adopt(payload: BatchAdoptRequest, service: DiscoveryServiceDep) -> BatchResult:
+    """批量采纳候选新岗位。"""
+    return service.batch_adopt(payload)
+
+
+@router.post("/discover-new/batch/reject", response_model=BatchResult)
+def batch_reject(payload: BatchRejectRequest, service: DiscoveryServiceDep) -> BatchResult:
+    """批量否决候选新岗位。"""
+    return service.batch_reject(payload)
+
+
+@router.get("/discover-new/history")
+def get_adoption_history(service: DiscoveryServiceDep = Depends(get_discovery_service)):
+    """查看采纳/否决历史记录。"""
+    stats = service.get_stats()
+    candidates = []
+    for cid, status in service._adoption_log.items():
+        c = service.get_candidate(cid)
+        if c:
+            candidates.append({"candidate_id": cid, "name": c.name, "status": status.value})
+    return {"history": candidates, "stats": stats}
 
 
 # ── 技能管理 ──

@@ -38,6 +38,12 @@ const routes = [
     meta: { title: '岗位管理' },
   },
   {
+    path: '/new-job-discovery',
+    name: 'NewJobDiscovery',
+    component: () => import('../pages/NewJobDiscovery.vue'),
+    meta: { title: '新岗位发现' },
+  },
+  {
     path: '/job-evolution',
     name: 'JobEvolution',
     component: () => import('../pages/JobEvolution.vue'),
