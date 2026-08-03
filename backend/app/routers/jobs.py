@@ -133,8 +133,8 @@ def get_discover_candidate(candidate_id: str, service: DiscoveryServiceDep):
 @router.post("/discover-new/{candidate_id}/adopt")
 def adopt_candidate(
     candidate_id: str,
+    service: DiscoveryServiceDep,
     create_graph_nodes: bool = True,
-    service: DiscoveryServiceDep = Depends(get_discovery_service),
 ):
     """采纳候选新岗位，可选择是否写入图谱。"""
     result = service.adopt(candidate_id, create_graph_nodes)
@@ -144,7 +144,7 @@ def adopt_candidate(
 
 
 @router.post("/discover-new/{candidate_id}/reject")
-def reject_candidate(candidate_id: str, service: DiscoveryServiceDep = Depends(get_discovery_service)):
+def reject_candidate(candidate_id: str, service: DiscoveryServiceDep):
     """否决候选新岗位。"""
     result = service.reject(candidate_id)
     if not result.success:
@@ -165,7 +165,7 @@ def batch_reject(payload: BatchRejectRequest, service: DiscoveryServiceDep) -> B
 
 
 @router.get("/discover-new/history")
-def get_adoption_history(service: DiscoveryServiceDep = Depends(get_discovery_service)):
+def get_adoption_history(service: DiscoveryServiceDep):
     """查看采纳/否决历史记录。"""
     stats = service.get_stats()
     candidates = []
