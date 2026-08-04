@@ -24,13 +24,14 @@
 | 项目任务书 | [`docs/`](docs/) | 任务书、分工表、项目相关资料 |
 | 2.1/2.2 上游数据交付契约 | [`data/schema/README.md`](data/schema/README.md) | 供 2.3、2.4、3.1、3.3 使用的字段、时间、ID、证据、聚合与验收标准 |
 | 2.3 岗位能力知识图谱 | [`backend/app/graph/README.md`](backend/app/graph/README.md) | 图谱 Schema、节点/关系格式、图谱 API、跨子任务数据契约 |
+| 2.4 新岗位发现与能力动态更新 | [`backend/app/discovery/README.md`](backend/app/discovery/README.md) | 2.2 JSON/JSONL 接入、技能社区与 novelty 算法、人工审核、变更日志及 2.3 写回 |
 | 3.2 简历解析 | 待补充 | 建议后续补充标准化简历画像输出格式，供 3.3 人岗匹配消费 |
 | 3.3 人岗匹配诊断与差距分析 | [`backend/app/matching/README.md`](backend/app/matching/README.md) | 匹配评分、差距分析、Spark Lite 配置、对 2.3/3.2 的数据要求 |
 | 数据目录 | [`data/README.md`](data/README.md) | 原始数据、处理后数据、示例数据和 schema 的存放约定 |
 | 数据处理管线 | [`data_pipeline/README.md`](data_pipeline/README.md) | 数据处理脚本和管线说明 |
 | 工具脚本 | [`scripts/README.md`](scripts/README.md) | 项目辅助脚本说明 |
 
-当前联调状态：2.3 图谱与 3.3 匹配的数据格式已经预留适配；3.3 前后端展示链路可基于 demo 数据运行。真实数据闭环需要等待 3.2 简历解析画像和 2.3 真实岗位图谱数据完成交接后接入。
+当前联调状态：2.4 已支持直接读取 2.2 的 `normalized_records.json/jsonl`，对照 2.3 图谱进行新岗位发现和既有岗位能力更新，并在人工审核后写回 2.3；详见[子任务 2.4 文档](backend/app/discovery/README.md)。3.3 前后端展示链路可基于 demo 数据运行，完整真实数据闭环仍需完成 2.2 数据、2.3 Neo4j 和 3.2 简历画像的实际交接。
 
 ## 技术栈
 
@@ -61,6 +62,7 @@
 │   │   │   ├── matching.py         # 人岗匹配
 │   │   │   └── dashboard.py        # 仪表盘
 │   │   ├── graph/               # 图谱领域模型+服务（已实现）
+│   │   ├── discovery/           # 2.4 新岗位发现、审核与能力变更日志
 │   │   ├── data_collection/     # 各模块 Pydantic 数据模型
 │   │   ├── data_cleaning/
 │   │   ├── extraction/
@@ -82,6 +84,7 @@
 │       │   ├── KnowledgeGraph.vue  # 知识图谱
 │       │   ├── JobSearch.vue       # 岗位管理
 │       │   ├── JobEvolution.vue    # 岗位演化
+│       │   ├── NewJobDiscovery.vue # 新岗位发现与能力动态更新
 │       │   ├── ResumeParse.vue     # 简历解析
 │       │   └── MatchReport.vue     # 人岗匹配
 │       └── components/          # Navbar / TaskBar / KnowledgeGraph / Placeholder
