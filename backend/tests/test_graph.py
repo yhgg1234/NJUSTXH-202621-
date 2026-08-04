@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.graph.dependencies import get_graph_service
 from app.graph.models import GraphImportRequest, GraphNode, GraphRelationship
+from app.graph.repository import Neo4jGraphRepository
 from app.graph.service import GraphService
 from app.main import app
 
@@ -251,3 +252,54 @@ def test_periodic_import_replaces_stale_relationships_in_same_job_period():
         ].properties["skill_jd_count"]
         == 70
     )
+
+
+class _NodeUpsertResult:
+    def __init__(self, count):
+        self.count = count
+
+    def single(self):
+        return {"count": self.count}
+
+
+class _NodeUpsertSession:
+    def __init__(self, driver):
+        self.driver = driver
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def run(self, query, **parameters):
+        self.driver.query = query
+        self.driver.parameters = parameters
+        return _NodeUpsertResult(len(parameters["rows"]))
+
+
+class _NodeUpsertDriver:
+    def session(self, **kwargs):
+        return _NodeUpsertSession(self)
+
+
+def test_node_upsert_preserves_existing_aliases_and_source_ids():
+    driver = _NodeUpsertDriver()
+    repository = Neo4jGraphRepository(driver)
+
+    count = repository.upsert_nodes(
+        [
+            GraphNode(
+                id="skill:python",
+                type="Skill",
+                name="Python",
+                aliases=["Python语言"],
+                source_ids=["source:new-jd"],
+            )
+        ],
+        "task-2.4-test",
+    )
+
+    assert count == 1
+    assert "coalesce(n.aliases, []) + coalesce(row.aliases, [])" in driver.query
+    assert "coalesce(n.source_ids, []) + coalesce(row.source_ids, [])" in driver.query

@@ -122,7 +122,14 @@ class Neo4jGraphRepository:
                 query = (
                     f"UNWIND $rows AS row MERGE (n:GraphEntity:{node_type.value} {{id: row.id}}) "
                     "ON CREATE SET n.created_at = datetime() "
-                    "SET n += row, n.updated_at = datetime() RETURN count(n) AS count"
+                    "WITH n, row, coalesce(n.aliases, []) + coalesce(row.aliases, []) AS aliases, "
+                    "coalesce(n.source_ids, []) + coalesce(row.source_ids, []) AS source_ids "
+                    "SET n += row, "
+                    "n.aliases = reduce(items = [], item IN aliases | "
+                    "CASE WHEN item IN items THEN items ELSE items + item END), "
+                    "n.source_ids = reduce(items = [], item IN source_ids | "
+                    "CASE WHEN item IN items THEN items ELSE items + item END), "
+                    "n.updated_at = datetime() RETURN count(n) AS count"
                 )
                 total += session.run(query, rows=rows).single()["count"]
         return total

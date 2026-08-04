@@ -15,6 +15,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def _project_path(environment_name: str, default: Path) -> Path:
+    configured = Path(os.getenv(environment_name, str(default)))
+    return configured if configured.is_absolute() else BASE_DIR / configured
+
+
 class Settings:
     """应用配置"""
 
@@ -47,6 +52,16 @@ class Settings:
 
     # 服务配置
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
+
+    # 子任务 2.4：2.2 逐 JD 标准化数据与审核状态
+    DISCOVERY_NORMALIZED_PATH: Path = _project_path(
+        "DISCOVERY_NORMALIZED_PATH",
+        BASE_DIR / "data" / "processed" / "normalized",
+    )
+    DISCOVERY_STATE_PATH: Path = _project_path(
+        "DISCOVERY_STATE_PATH",
+        BASE_DIR / "data" / "processed" / "discovery" / "state.json",
+    )
 
 
 settings = Settings()
