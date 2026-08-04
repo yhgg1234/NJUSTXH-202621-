@@ -1,486 +1,250 @@
 <template>
   <div class="page">
-    <div class="page-heading">
+    <header class="page-heading">
       <div>
-        <p class="eyebrow">NEW JOB DISCOVERY · 子任务 2.4</p>
-        <h2>新岗位发现</h2>
-        <p>基于图谱技能组合聚类与 JD 趋势分析，自动识别新兴岗位候选，支持人工审核采纳。</p>
+        <p class="eyebrow">TASK 2.4 · EVIDENCE-BASED DISCOVERY</p>
+        <h2>新岗位发现与能力动态更新</h2>
+        <p>读取 2.2 逐 JD 标准化数据，对照 2.3 图谱生成可追溯候选和能力变更日志。</p>
       </div>
-    </div>
+      <label class="reviewer"><span>当前审核人</span><input v-model.trim="reviewer" /></label>
+    </header>
 
-    <!-- 触发发现 -->
     <form class="filters" @submit.prevent="runDiscovery">
-      <label>
-        <span>最低置信度</span>
-        <input v-model.number="filters.min_confidence" type="number" min="0" max="1" step="0.05" />
-      </label>
-      <label>
-        <span>最大候选数</span>
-        <input v-model.number="filters.max_candidates" type="number" min="1" max="100" />
-      </label>
-      <button class="primary-button" :disabled="loading" type="submit">
-        {{ loading ? '分析中…' : '执行新岗位发现' }}
-      </button>
+      <label><span>开始日期</span><input v-model="filters.start" type="date" /></label>
+      <label><span>结束日期</span><input v-model="filters.end" type="date" /></label>
+      <label><span>Novelty 阈值</span><input v-model.number="filters.novelty_threshold" type="number" min="0" max="1" step="0.05" /></label>
+      <label><span>最少去重 JD</span><input v-model.number="filters.min_frequency" type="number" min="1" /></label>
+      <label><span>最少公司</span><input v-model.number="filters.min_companies" type="number" min="1" /></label>
+      <label><span>最少渠道</span><input v-model.number="filters.min_sources" type="number" min="1" /></label>
+      <button class="primary-button" :disabled="loading">{{ loading ? '分析中…' : '执行真实数据发现' }}</button>
     </form>
 
     <div v-if="error" class="message error-message">{{ error }}</div>
-    <div v-else-if="!candidates.length && !loading" class="message">点击上方按钮执行新岗位发现分析。</div>
+    <div v-if="quality.warnings?.length" class="quality-warning">
+      <strong>数据质量提示</strong>
+      <ul><li v-for="item in quality.warnings" :key="item">{{ item }}</li></ul>
+    </div>
 
-    <template v-if="candidates.length">
-      <!-- 统计概览 -->
-      <section class="summary-grid">
-        <article class="summary-card">
-          <span>候选新岗位</span>
-          <strong>{{ stats.total_candidates || candidates.length }}</strong>
-          <small>待审核</small>
-        </article>
-        <article class="summary-card">
-          <span>已采纳</span>
-          <strong class="text-green">{{ stats.adopted_count || 0 }}</strong>
-          <small>已写入图谱</small>
-        </article>
-        <article class="summary-card">
-          <span>已否决</span>
-          <strong class="text-red">{{ stats.rejected_count || 0 }}</strong>
-          <small>人工判定不成立</small>
-        </article>
-        <article class="summary-card">
-          <span>平均置信度</span>
-          <strong>{{ stats.avg_confidence || avgConfidence }}</strong>
-          <small>候选整体可信度</small>
-        </article>
-      </section>
+    <section class="summary-grid">
+      <article><span>候选</span><strong>{{ stats.total_candidates || 0 }}</strong></article>
+      <article><span>已采纳</span><strong class="green">{{ stats.adopted_count || 0 }}</strong></article>
+      <article><span>已否决</span><strong class="red">{{ stats.rejected_count || 0 }}</strong></article>
+      <article><span>有效 JD</span><strong>{{ quality.valid_records || 0 }}</strong></article>
+      <article><span>对照岗位</span><strong>{{ scanStats.jobs || 0 }}</strong></article>
+    </section>
 
-      <!-- 主内容区：表格 + 详情 + 批量操作 -->
-      <div class="main-layout">
-        <!-- 左侧：候选表格 -->
-        <section class="candidates-panel">
-          <h3>新岗位候选</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:30px"><input type="checkbox" @change="toggleAll" v-model="allSelected" /></th>
-                  <th>候选新岗位</th>
-                  <th>标准化 ID</th>
-                  <th>置信度</th>
-                  <th>判定依据</th>
-                  <th>状态</th>
-                  <th style="width:140px">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in candidates" :key="c.candidate_id" :class="{ selected: selectedId === c.candidate_id }">
-                  <td><input type="checkbox" :value="c.candidate_id" v-model="selectedIds" /></td>
-                  <td>
-                    <a href="#" @click.prevent="selectCandidate(c)">{{ c.name }}</a>
-                  </td>
-                  <td><code>{{ c.standardized_id }}</code></td>
-                  <td>
-                    <div class="confidence-cell">
-                      <div class="conf-bar">
-                        <div class="conf-fill" :style="{ width: (c.emergence_confidence * 100) + '%', background: confColor(c.emergence_confidence) }"></div>
-                      </div>
-                      <span class="conf-num">{{ (c.emergence_confidence * 100).toFixed(0) }}%</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span class="badge" v-for="e in c.evidence_chain?.slice(0, 2)" :key="e.type" :title="e.description">
-                      {{ evidenceLabel(e.type) }}
-                    </span>
-                  </td>
-                  <td>
-                    <span :class="['status-tag', c.status]">{{ statusLabel(c.status) }}</span>
-                  </td>
-                  <td class="actions-cell">
-                    <button class="mini-btn adopt" v-if="c.status === 'pending'" @click="adoptOne(c)">采纳</button>
-                    <button class="mini-btn reject" v-if="c.status === 'pending'" @click="rejectOne(c)">否决</button>
-                    <button class="mini-btn view" @click="selectCandidate(c)">详情</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <!-- 右侧：批量操作 -->
-        <aside class="batch-panel">
-          <h3>批量操作</h3>
-          <p class="hint">已选 <strong>{{ selectedIds.length }}</strong> 个候选</p>
-          <button class="primary-button full-width" :disabled="!selectedIds.length" @click="batchAdopt">确认采纳已选新岗位</button>
-          <button class="primary-button full-width outline" :disabled="!selectedIds.length" @click="batchAdoptHighConf">一键采纳所有高置信度</button>
-          <button class="danger-button full-width" :disabled="!selectedIds.length" @click="batchReject">否决已选候选新岗位</button>
-          <button class="ghost-button full-width" @click="exportReport">导出候选报告</button>
-          <button class="ghost-button full-width" @click="loadAdoptionHistory">查看采纳历史</button>
-
-          <hr />
-
-          <h4>置信度分布</h4>
-          <div class="distro-bars">
-            <div v-for="d in confidenceDistribution" :key="d.label" class="distro-row">
-              <span class="distro-label">{{ d.label }}</span>
-              <div class="distro-bar"><div class="distro-fill" :style="{ width: d.pct + '%' }"></div></div>
-              <span class="distro-count">{{ d.count }}</span>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <!-- 底部：详情面板 -->
-      <section v-if="detail" class="detail-panel">
-        <h3>新岗位详情</h3>
-        <div class="detail-grid">
-          <div class="detail-main">
-            <div class="detail-row">
-              <span class="detail-label">岗位名称</span>
-              <span class="detail-value strong">{{ detail.name }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">标准化 ID</span>
-              <code>{{ detail.standardized_id }}</code>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">新兴技能</span>
-              <span class="detail-value">
-                <span class="skill-tag" v-for="sk in detail.emerging_skills" :key="sk">{{ sk }}</span>
-              </span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">来自现有岗位分化</span>
-              <span class="detail-value">
-                <code v-for="dj in detail.derived_from" :key="dj" class="from-job">{{ dj }}</code>
-              </span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">推测出现时间</span>
-              <span class="detail-value">{{ detail.estimated_emergence }} <small>(置信度 {{ (detail.emergence_confidence * 100).toFixed(0) }}%)</small></span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">新岗位描述</span>
-              <span class="detail-value">{{ detail.description }}</span>
-            </div>
-          </div>
-          <div class="detail-evidence">
-            <h4>判定证据链</h4>
-            <div class="evidence-timeline">
-              <div v-for="(ev, i) in detail.evidence_chain" :key="i" class="evidence-node">
-                <div class="evidence-dot"></div>
-                <div class="evidence-body">
-                  <strong>{{ evidenceLabel(ev.type) }}</strong>
-                  <p>{{ ev.description }}</p>
-                  <span class="evidence-conf">置信度 {{ (ev.confidence * 100).toFixed(0) }}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
+    <section class="panel">
+      <div class="panel-title">
+        <h3>新岗位候选</h3>
+        <div class="batch-actions">
+          <span>已选 {{ selectedIds.length }}</span>
+          <button :disabled="!selectedIds.length" @click="batchAdopt">批量采纳</button>
+          <button :disabled="!selectedIds.length" class="danger" @click="batchReject">批量否决</button>
         </div>
-      </section>
-    </template>
-
-    <!-- 采纳历史弹窗 -->
-    <div v-if="showHistory" class="modal-backdrop" @click.self="showHistory = false">
-      <div class="modal">
-        <h3>采纳历史</h3>
+      </div>
+      <div class="table-wrap">
         <table>
-          <thead><tr><th>候选</th><th>状态</th></tr></thead>
+          <thead><tr><th></th><th>岗位</th><th>样本/来源</th><th>Novelty</th><th>趋势</th><th>综合置信度</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
-            <tr v-for="h in historyList" :key="h.candidate_id">
-              <td>{{ h.name }}</td>
-              <td><span :class="['status-tag', h.status]">{{ statusLabel(h.status) }}</span></td>
+            <tr v-for="candidate in candidates" :key="candidate.candidate_id">
+              <td><input v-model="selectedIds" :value="candidate.candidate_id" type="checkbox" :disabled="candidate.status !== 'pending'" /></td>
+              <td><a href="#" @click.prevent="selectCandidate(candidate)">{{ candidate.name }}</a><small>{{ candidate.standardized_id }}</small></td>
+              <td>{{ candidate.supporting_jd_count }} JD / {{ candidate.company_count }} 公司 / {{ candidate.source_count }} 渠道</td>
+              <td>{{ percent(candidate.novelty_score) }}</td>
+              <td>{{ percent(candidate.trend_score) }}</td>
+              <td><progress max="1" :value="candidate.emergence_confidence"></progress> {{ percent(candidate.emergence_confidence) }}</td>
+              <td><span :class="['status', candidate.status]">{{ statusLabel(candidate.status) }}</span></td>
+              <td><button @click="selectCandidate(candidate)">详情</button></td>
             </tr>
+            <tr v-if="!candidates.length"><td colspan="8" class="empty">尚未执行发现，或没有达到阈值的候选。</td></tr>
           </tbody>
         </table>
-        <button class="primary-button" @click="showHistory = false">关闭</button>
       </div>
-    </div>
+    </section>
+
+    <section v-if="detail" class="panel detail-panel">
+      <div class="panel-title">
+        <h3>候选定义与证据</h3>
+        <div>
+          <button v-if="detail.status === 'pending'" @click="startEdit">人工优化</button>
+          <button v-if="detail.status === 'pending'" class="primary-button" @click="adoptOne">审核通过并写入图谱</button>
+          <button v-if="detail.status === 'pending'" class="danger" @click="rejectOne">否决</button>
+        </div>
+      </div>
+
+      <form v-if="editing" class="edit-form" @submit.prevent="saveEdit">
+        <label><span>岗位名称</span><input v-model="edit.name" required /></label>
+        <label><span>岗位定义</span><textarea v-model="edit.description" rows="4" required></textarea></label>
+        <label><span>核心职责（每行一项）</span><textarea v-model="edit.responsibilities" rows="5"></textarea></label>
+        <label><span>典型行业场景（每行一项）</span><textarea v-model="edit.industries" rows="4"></textarea></label>
+        <label><span>必备技能 JSON</span><textarea v-model="edit.requiredSkills" rows="8"></textarea></label>
+        <label><span>加分技能 JSON</span><textarea v-model="edit.bonusSkills" rows="8"></textarea></label>
+        <label><span>优化说明</span><input v-model="edit.comment" /></label>
+        <div><button class="primary-button">保存人工优化</button><button type="button" @click="editing = false">取消</button></div>
+      </form>
+
+      <template v-else>
+        <div class="definition-grid">
+          <div>
+            <h4>{{ detail.name }}</h4>
+            <p>{{ detail.description }}</p>
+            <h5>核心职责</h5><ul><li v-for="item in detail.core_responsibilities" :key="item">{{ item }}</li></ul>
+            <h5>典型行业应用场景</h5><div><span v-for="item in detail.industry_scenarios" :key="item" class="tag industry">{{ item }}</span></div>
+          </div>
+          <div>
+            <h5>必备技能</h5>
+            <div class="skill-list"><span v-for="skill in detail.required_skills" :key="skill.id" class="tag required" :title="skill.id">{{ skill.name }} {{ percent(skill.support_ratio) }}</span></div>
+            <h5>加分技能</h5>
+            <div class="skill-list"><span v-for="skill in detail.bonus_skills" :key="skill.id" class="tag bonus" :title="skill.id">{{ skill.name }} {{ percent(skill.support_ratio) }}</span></div>
+            <p class="meta">出现时间 {{ detail.estimated_emergence }}；最新周期 {{ detail.latest_period }}；最相近岗位 {{ detail.closest_existing_job_name }}（{{ percent(detail.closest_similarity) }}）</p>
+          </div>
+        </div>
+        <h5>证据链</h5>
+        <div class="evidence-grid">
+          <article v-for="evidence in detail.evidence_chain" :key="evidence.type">
+            <strong>{{ evidenceLabel(evidence.type) }}</strong><p>{{ evidence.description }}</p><small>置信度 {{ percent(evidence.confidence) }} · {{ evidence.supporting_ids.length }} 条引用</small>
+          </article>
+        </div>
+      </template>
+    </section>
+
+    <section class="panel change-panel">
+      <div class="panel-title"><div><h3>既有岗位能力动态更新</h3><p>比较 2.3 中两个同粒度周期快照，生成可审核的完整变更日志。</p></div></div>
+      <form class="filters compact" @submit.prevent="analyzeChanges">
+        <label><span>岗位 ID</span><input v-model.trim="changeQuery.job_id" required placeholder="job:backend-engineer" /></label>
+        <label><span>起始周期</span><input v-model.trim="changeQuery.from_period" required placeholder="2025Q1" /></label>
+        <label><span>目标周期</span><input v-model.trim="changeQuery.to_period" required placeholder="2025Q2" /></label>
+        <label><span>变化阈值</span><input v-model.number="changeQuery.change_threshold" type="number" min="0" max="1" step="0.01" /></label>
+        <button class="primary-button">生成变更日志</button>
+      </form>
+      <div v-if="changeWarnings.length" class="quality-warning">{{ changeWarnings.join('；') }}</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>能力项</th><th>类型</th><th>变化前</th><th>变化后</th><th>Delta</th><th>证据</th><th>审核</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="change in changes" :key="change.change_id">
+              <td>{{ change.entity_name }}<small>{{ change.entity_id }}</small></td>
+              <td>{{ changeTypeLabel(change.change_type) }}</td>
+              <td>{{ ratioOf(change.before) }}</td><td>{{ ratioOf(change.after) }}</td><td>{{ signed(change.delta) }}</td>
+              <td>{{ change.evidence_ids.length }}</td><td>{{ reviewLabel(change.review_status) }}</td>
+              <td><button @click="reviewChange(change, 'approved')">通过</button><button class="danger" @click="reviewChange(change, 'rejected')">驳回</button></td>
+            </tr>
+            <tr v-if="!changes.length"><td colspan="8" class="empty">尚无变更日志。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import jobsApi from '../api/jobs'
 
-const filters = ref({ min_confidence: 0.5, max_candidates: 20 })
+const reviewer = ref('人工审核员')
+const filters = reactive({ start: '', end: '', novelty_threshold: 0.3, min_frequency: 5, min_companies: 2, min_sources: 2 })
 const candidates = ref([])
+const selectedIds = ref([])
+const detail = ref(null)
 const stats = ref({})
+const scanStats = reactive({ jobs: 0, skills: 0, records: 0 })
+const quality = ref({ warnings: [] })
 const loading = ref(false)
 const error = ref('')
-const selectedId = ref('')
-const detail = ref(null)
-const selectedIds = ref([])
-const allSelected = ref(false)
-const showHistory = ref(false)
-const historyList = ref([])
+const editing = ref(false)
+const edit = reactive({ name: '', description: '', responsibilities: '', industries: '', requiredSkills: '[]', bonusSkills: '[]', comment: '' })
+const changeQuery = reactive({ job_id: 'job:backend-engineer', from_period: '2025Q1', to_period: '2025Q2', granularity: 'quarterly', change_threshold: 0.05 })
+const changes = ref([])
+const changeWarnings = ref([])
 
-const avgConfidence = computed(() => {
-  if (!candidates.value.length) return 0
-  const sum = candidates.value.reduce((a, c) => a + c.emergence_confidence, 0)
-  return (sum / candidates.value.length).toFixed(2)
-})
+onMounted(refreshStats)
 
-const confidenceDistribution = computed(() => {
-  const buckets = [
-    { label: '90-100%', min: 0.9, count: 0 },
-    { label: '70-90%', min: 0.7, max: 0.9, count: 0 },
-    { label: '50-70%', min: 0.5, max: 0.7, count: 0 },
-    { label: '<50%', max: 0.5, count: 0 },
-  ]
-  candidates.value.forEach(c => {
-    for (const b of buckets) {
-      if ((b.min === undefined || c.emergence_confidence >= b.min) && (b.max === undefined || c.emergence_confidence < b.max)) {
-        b.count++
-        break
-      }
-    }
-  })
-  const max = Math.max(...buckets.map(b => b.count), 1)
-  return buckets.map(b => ({ ...b, pct: Math.round((b.count / max) * 100) }))
-})
-
-function evidenceLabel(type) {
-  const map = {
-    skill_divergence: '技能偏离',
-    new_skill_emergence: '新技能涌现',
-    jd_frequency_surge: 'JD激增',
-    industry_spread: '行业扩散',
-  }
-  return map[type] || type
-}
-
-function statusLabel(s) {
-  const map = { pending: '待审核', adopted: '已采纳', rejected: '已否决' }
-  return map[s] || s
-}
-
-function confColor(v) {
-  if (v >= 0.8) return '#16a34a'
-  if (v >= 0.6) return '#f59e0b'
-  if (v >= 0.5) return '#f97316'
-  return '#ef4444'
+async function refreshStats() {
+  try { stats.value = (await jobsApi.getDiscoverStats()).data } catch (_) { /* 尚未初始化时保持零值 */ }
 }
 
 async function runDiscovery() {
-  loading.value = true
-  error.value = ''
+  loading.value = true; error.value = ''
   try {
-    const res = await jobsApi.discoverNewJobs(filters.value)
-    candidates.value = res.data.candidates || []
-    stats.value = { total_candidates: res.data.total_scanned_jobs || candidates.value.length }
-    detail.value = null
-    selectedId.value = ''
-  } catch (e) {
-    error.value = '发现分析失败：' + (e.response?.data?.detail || e.message)
-  } finally {
-    loading.value = false
-  }
+    const payload = { novelty_threshold: filters.novelty_threshold, min_frequency: filters.min_frequency, min_companies: filters.min_companies, min_sources: filters.min_sources }
+    if (filters.start && filters.end) payload.time_range = [filters.start, filters.end]
+    const { data } = await jobsApi.discoverNewJobs(payload)
+    candidates.value = data.candidates || []
+    quality.value = data.data_quality || { warnings: [] }
+    scanStats.jobs = data.total_scanned_jobs; scanStats.skills = data.total_scanned_skills; scanStats.records = data.total_scanned_records
+    selectedIds.value = []; detail.value = null
+    await refreshStats()
+  } catch (e) { error.value = errorMessage(e, '发现分析失败') }
+  finally { loading.value = false }
 }
 
-function selectCandidate(c) {
-  selectedId.value = c.candidate_id
-  detail.value = c
+function selectCandidate(candidate) { detail.value = candidate; editing.value = false }
+function startEdit() {
+  edit.name = detail.value.name; edit.description = detail.value.description
+  edit.responsibilities = detail.value.core_responsibilities.join('\n'); edit.industries = detail.value.industry_scenarios.join('\n')
+  edit.requiredSkills = JSON.stringify(detail.value.required_skills, null, 2); edit.bonusSkills = JSON.stringify(detail.value.bonus_skills, null, 2)
+  edit.comment = ''; editing.value = true
 }
-
-function toggleAll() {
-  if (allSelected.value) {
-    selectedIds.value = candidates.value.filter(c => c.status === 'pending').map(c => c.candidate_id)
-  } else {
-    selectedIds.value = []
-  }
-}
-
-async function adoptOne(c) {
+async function saveEdit() {
   try {
-    await jobsApi.adoptCandidate(c.candidate_id, true)
-    c.status = 'adopted'
-    if (detail.value?.candidate_id === c.candidate_id) detail.value.status = 'adopted'
-  } catch (e) {
-    error.value = '采纳失败：' + (e.response?.data?.detail || e.message)
-  }
+    const payload = { name: edit.name, description: edit.description, core_responsibilities: lines(edit.responsibilities), industry_scenarios: lines(edit.industries), required_skills: JSON.parse(edit.requiredSkills), bonus_skills: JSON.parse(edit.bonusSkills), reviewer: reviewer.value, review_comment: edit.comment }
+    const { data } = await jobsApi.editCandidate(detail.value.candidate_id, payload)
+    replaceCandidate(data); detail.value = data; editing.value = false
+  } catch (e) { error.value = errorMessage(e, '保存人工优化失败') }
 }
-
-async function rejectOne(c) {
-  try {
-    await jobsApi.rejectCandidate(c.candidate_id)
-    c.status = 'rejected'
-    if (detail.value?.candidate_id === c.candidate_id) detail.value.status = 'rejected'
-  } catch (e) {
-    error.value = '否决失败：' + (e.response?.data?.detail || e.message)
-  }
+async function adoptOne() {
+  if (!confirm('确认定义无误并写入 2.3 知识图谱？')) return
+  try { await jobsApi.adoptCandidate(detail.value.candidate_id, { reviewer: reviewer.value, comment: '人工审核通过', create_graph_nodes: true }); detail.value.status = 'adopted'; replaceCandidate(detail.value); await refreshStats() }
+  catch (e) { error.value = errorMessage(e, '采纳失败') }
 }
-
+async function rejectOne() {
+  const comment = prompt('请输入否决原因：', '')
+  if (comment === null) return
+  try { await jobsApi.rejectCandidate(detail.value.candidate_id, { reviewer: reviewer.value, comment, create_graph_nodes: false }); detail.value.status = 'rejected'; replaceCandidate(detail.value); await refreshStats() }
+  catch (e) { error.value = errorMessage(e, '否决失败') }
+}
 async function batchAdopt() {
-  try {
-    const res = await jobsApi.batchAdopt({ candidate_ids: selectedIds.value, create_graph_nodes: true })
-    selectedIds.value.forEach(id => {
-      const c = candidates.value.find(x => x.candidate_id === id)
-      if (c) c.status = 'adopted'
-    })
-    selectedIds.value = []
-    alert(res.data.summary)
-  } catch (e) {
-    error.value = '批量采纳失败：' + (e.response?.data?.detail || e.message)
-  }
+  try { await jobsApi.batchAdopt({ candidate_ids: selectedIds.value, create_graph_nodes: true, reviewer: reviewer.value, comment: '批量人工审核通过' }); markSelected('adopted'); await refreshStats() }
+  catch (e) { error.value = errorMessage(e, '批量采纳失败') }
 }
-
-async function batchAdoptHighConf() {
-  const highIds = candidates.value.filter(c => c.status === 'pending' && c.emergence_confidence >= 0.8).map(c => c.candidate_id)
-  if (!highIds.length) { alert('没有高置信度（≥80%）的待审核候选'); return }
-  try {
-    const res = await jobsApi.batchAdopt({ candidate_ids: highIds, create_graph_nodes: true })
-    highIds.forEach(id => {
-      const c = candidates.value.find(x => x.candidate_id === id)
-      if (c) c.status = 'adopted'
-    })
-    alert(res.data.summary)
-  } catch (e) {
-    error.value = '批量采纳失败：' + (e.response?.data?.detail || e.message)
-  }
-}
-
 async function batchReject() {
-  if (!confirm('确定否决选中的候选新岗位？')) return
-  try {
-    const res = await jobsApi.batchReject({ candidate_ids: selectedIds.value })
-    selectedIds.value.forEach(id => {
-      const c = candidates.value.find(x => x.candidate_id === id)
-      if (c) c.status = 'rejected'
-    })
-    selectedIds.value = []
-    alert(res.data.summary)
-  } catch (e) {
-    error.value = '批量否决失败：' + (e.response?.data?.detail || e.message)
-  }
+  const comment = prompt('请输入批量否决原因：', '')
+  if (comment === null) return
+  try { await jobsApi.batchReject({ candidate_ids: selectedIds.value, reviewer: reviewer.value, comment }); markSelected('rejected'); await refreshStats() }
+  catch (e) { error.value = errorMessage(e, '批量否决失败') }
+}
+function markSelected(status) { candidates.value.forEach(item => { if (selectedIds.value.includes(item.candidate_id)) item.status = status }); selectedIds.value = [] }
+function replaceCandidate(value) { const index = candidates.value.findIndex(item => item.candidate_id === value.candidate_id); if (index >= 0) candidates.value[index] = value }
+
+async function analyzeChanges() {
+  error.value = ''
+  try { const { data } = await jobsApi.analyzeAbilityChanges({ ...changeQuery }); changes.value = data.changes || []; changeWarnings.value = data.warnings || [] }
+  catch (e) { error.value = errorMessage(e, '能力变化分析失败') }
+}
+async function reviewChange(change, status) {
+  const comment = prompt(status === 'approved' ? '审核说明：' : '驳回原因：', '')
+  if (comment === null) return
+  try { const { data } = await jobsApi.reviewAbilityChange(change.change_id, { status, reviewer: reviewer.value, comment }); Object.assign(change, data) }
+  catch (e) { error.value = errorMessage(e, '变更审核失败') }
 }
 
-function exportReport() {
-  const rows = [['候选新岗位', '标准化ID', '置信度', '推测时间', '状态', '新兴技能', '来源岗位', '描述']]
-  candidates.value.forEach(c => {
-    rows.push([c.name, c.standardized_id, c.emergence_confidence.toFixed(2), c.estimated_emergence, c.status, c.emerging_skills.join(';'), c.derived_from.join(';'), c.description])
-  })
-  const csv = rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = 'new_job_candidates.csv'; a.click()
-  URL.revokeObjectURL(url)
-}
-
-async function loadAdoptionHistory() {
-  try {
-    const res = await jobsApi.getAdoptionHistory()
-    historyList.value = res.data.history || []
-    showHistory.value = true
-  } catch (e) {
-    error.value = '加载历史失败：' + (e.response?.data?.detail || e.message)
-  }
-}
+function lines(value) { return value.split(/\r?\n/).map(item => item.trim()).filter(Boolean) }
+function percent(value) { return `${((Number(value) || 0) * 100).toFixed(1)}%` }
+function signed(value) { const number = Number(value) || 0; return `${number > 0 ? '+' : ''}${number.toFixed(4)}` }
+function ratioOf(value) { return value ? percent(value.demand_ratio) : '—' }
+function statusLabel(value) { return ({ pending: '待审核', adopted: '已采纳', rejected: '已否决' })[value] || value }
+function reviewLabel(value) { return ({ pending: '待审核', approved: '已通过', rejected: '已驳回' })[value] || value }
+function changeTypeLabel(value) { return ({ added: '新增', removed: '删除', increased: '增强', decreased: '减弱', renamed: '改名', merged: '合并', split: '拆分' })[value] || value }
+function evidenceLabel(value) { return ({ community_cluster: '技能社区', skill_novelty: '组合 Novelty', jd_frequency_surge: 'JD 趋势异常', multi_source_support: '多源交叉验证' })[value] || value }
+function errorMessage(error, prefix) { const detail = error.response?.data?.detail; return `${prefix}：${typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : error.message}` }
 </script>
 
 <style scoped>
-/* 复用项目通用样式 */
-.page { max-width: 1300px; }
-.page-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
-.page-heading h2 { margin: 0; color: #0f172a; }
-.eyebrow { margin: 0 0 4px; color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .15em; }
-.page-heading p { margin: 4px 0 0; color: #64748b; font-size: 13px; }
-
-.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 20px; background: #fff; padding: 16px 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-.filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #64748b; }
-.filters input, .filters select { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; min-width: 120px; }
-.primary-button { padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
-.primary-button:hover:not(:disabled) { background: #1d4ed8; }
-.primary-button:disabled { opacity: .5; cursor: not-allowed; }
-.primary-button.outline { background: #fff; color: #2563eb; border: 1px solid #2563eb; }
-.danger-button { padding: 8px 20px; background: #fff; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
-.danger-button:hover:not(:disabled) { background: #fef2f2; }
-.danger-button:disabled { opacity: .5; cursor: not-allowed; }
-.ghost-button { padding: 8px 20px; background: transparent; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; cursor: pointer; }
-.ghost-button:hover { background: #f8fafc; }
-.full-width { width: 100%; margin-bottom: 8px; }
-
-.message { padding: 40px; text-align: center; color: #64748b; background: #fff; border-radius: 12px; }
-.error-message { color: #dc2626; background: #fef2f2; }
-
-.summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
-.summary-card { background: #fff; padding: 16px 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-.summary-card span { display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .08em; }
-.summary-card strong { display: block; font-size: 28px; margin: 4px 0; }
-.summary-card small { font-size: 11px; color: #94a3b8; }
-.text-green { color: #16a34a; }
-.text-red { color: #dc2626; }
-
-.main-layout { display: grid; grid-template-columns: 1fr 260px; gap: 20px; margin-bottom: 20px; }
-
-.candidates-panel { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 20px; }
-.candidates-panel h3 { margin: 0 0 12px; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; padding: 10px 8px; border-bottom: 2px solid #e2e8f0; color: #64748b; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-td { padding: 10px 8px; border-bottom: 1px solid #f1f5f9; }
-tr.selected { background: #eff6ff; }
-td a { color: #2563eb; text-decoration: none; font-weight: 600; }
-td a:hover { text-decoration: underline; }
-td code { font-size: 11px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
-
-.confidence-cell { display: flex; align-items: center; gap: 8px; min-width: 110px; }
-.conf-bar { width: 70px; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
-.conf-fill { height: 100%; border-radius: 3px; transition: width .3s; }
-.conf-num { font-size: 12px; font-weight: 600; color: #475569; }
-
-.badge { display: inline-block; padding: 2px 8px; margin: 1px 2px; background: #eff6ff; color: #2563eb; border-radius: 4px; font-size: 10px; font-weight: 500; white-space: nowrap; }
-.status-tag { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-.status-tag.pending { background: #fef3c7; color: #92400e; }
-.status-tag.adopted { background: #dcfce7; color: #166534; }
-.status-tag.rejected { background: #fee2e2; color: #991b1b; }
-
-.actions-cell { white-space: nowrap; }
-.mini-btn { padding: 4px 10px; margin: 1px 2px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid transparent; font-weight: 500; }
-.mini-btn.adopt { background: #16a34a; color: #fff; border-color: #16a34a; }
-.mini-btn.adopt:hover { background: #15803d; }
-.mini-btn.reject { background: #fff; color: #dc2626; border-color: #fca5a5; }
-.mini-btn.reject:hover { background: #fef2f2; }
-.mini-btn.view { background: #fff; color: #2563eb; border-color: #cbd5e1; }
-.mini-btn.view:hover { background: #f8fafc; }
-
-.batch-panel { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 20px; }
-.batch-panel h3, .batch-panel h4 { margin: 0 0 8px; }
-.batch-panel hr { margin: 16px 0; border: none; border-top: 1px solid #e2e8f0; }
-.hint { font-size: 12px; color: #64748b; margin: 0 0 12px; }
-
-.distro-bars { font-size: 12px; }
-.distro-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.distro-label { width: 55px; color: #64748b; font-size: 11px; }
-.distro-bar { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
-.distro-fill { height: 100%; background: #2563eb; border-radius: 4px; }
-.distro-count { width: 20px; text-align: right; font-weight: 600; color: #475569; }
-
-.detail-panel { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 24px; }
-.detail-panel h3 { margin: 0 0 16px; }
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.detail-row { margin-bottom: 14px; }
-.detail-label { display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
-.detail-value { font-size: 14px; color: #1e293b; }
-.detail-value.strong { font-size: 18px; font-weight: 700; }
-.detail-value small { font-size: 12px; color: #94a3b8; }
-.from-job { margin-right: 8px; }
-
-.skill-tag { display: inline-block; padding: 3px 10px; margin: 2px 4px 2px 0; background: #dbeafe; color: #1e40af; border-radius: 10px; font-size: 12px; }
-
-.detail-evidence h4 { margin: 0 0 12px; }
-.evidence-timeline { border-left: 2px solid #e2e8f0; padding-left: 16px; }
-.evidence-node { position: relative; margin-bottom: 14px; }
-.evidence-dot { position: absolute; left: -21px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #2563eb; }
-.evidence-body strong { font-size: 13px; color: #1e293b; }
-.evidence-body p { margin: 3px 0; font-size: 12px; color: #64748b; }
-.evidence-conf { font-size: 11px; color: #94a3b8; }
-
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal { background: #fff; border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 70vh; overflow-y: auto; }
-.modal h3 { margin: 0 0 12px; }
-
-@media (max-width: 900px) {
-  .summary-grid { grid-template-columns: repeat(2, 1fr); }
-  .main-layout { grid-template-columns: 1fr; }
-  .detail-grid { grid-template-columns: 1fr; }
-}
+.page { max-width: 1400px; }
+.page-heading,.panel-title { display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px }.page-heading h2,.panel-title h3{margin:0}.page-heading p,.panel-title p{margin:5px 0 0;color:#64748b}.eyebrow{font-size:11px;font-weight:800;letter-spacing:.14em;color:#2563eb;margin:0}.reviewer{display:flex;flex-direction:column;font-size:12px;color:#64748b}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;background:#fff;padding:16px;border-radius:12px;margin-bottom:18px;box-shadow:0 2px 8px #0000000f}.filters.compact{box-shadow:none;padding:0}.filters label,.edit-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#64748b}.filters input,.reviewer input,.edit-form input,.edit-form textarea{border:1px solid #cbd5e1;border-radius:7px;padding:8px;font:inherit;background:#fff}.primary-button,button{border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:7px 11px;cursor:pointer}.primary-button{background:#2563eb;color:#fff;border-color:#2563eb}.danger{color:#b91c1c;border-color:#fecaca}button:disabled{opacity:.45;cursor:not-allowed}
+.message,.quality-warning{padding:13px 16px;border-radius:10px;margin-bottom:16px}.error-message{background:#fef2f2;color:#b91c1c}.quality-warning{background:#fff7ed;color:#9a3412}.quality-warning ul{margin:6px 0 0}.summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}.summary-grid article,.panel{background:#fff;border-radius:12px;box-shadow:0 2px 8px #0000000f;padding:18px}.summary-grid span{font-size:11px;color:#64748b}.summary-grid strong{display:block;font-size:25px}.green{color:#15803d}.red{color:#b91c1c}.panel{margin-bottom:18px}.batch-actions{display:flex;align-items:center;gap:8px;font-size:12px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e2e8f0;vertical-align:top}th{font-size:11px;color:#64748b}td small{display:block;color:#94a3b8;margin-top:3px}td a{color:#2563eb;font-weight:650;text-decoration:none}.empty{text-align:center;color:#94a3b8;padding:28px}.status,.tag{display:inline-block;border-radius:12px;padding:3px 9px;font-size:11px}.status.pending{background:#fef3c7}.status.adopted{background:#dcfce7;color:#166534}.status.rejected{background:#fee2e2;color:#991b1b}progress{width:70px;height:7px}
+.definition-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}.definition-grid h4{font-size:20px;margin:0 0 8px}.definition-grid h5,.detail-panel>h5{margin:18px 0 7px}.definition-grid ul{padding-left:20px}.tag{margin:2px 5px 2px 0}.tag.required{background:#dbeafe;color:#1e40af}.tag.bonus{background:#f3e8ff;color:#6b21a8}.tag.industry{background:#dcfce7;color:#166534}.meta{margin-top:18px;color:#64748b;font-size:12px}.evidence-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.evidence-grid article{border:1px solid #e2e8f0;border-radius:9px;padding:12px}.evidence-grid p{margin:5px 0;color:#475569}.evidence-grid small{color:#94a3b8}.edit-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.edit-form label:nth-child(2),.edit-form label:nth-child(5),.edit-form label:nth-child(6),.edit-form div{grid-column:1/-1}.change-panel{margin-top:26px}
+@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,1fr)}.definition-grid,.edit-form,.evidence-grid{grid-template-columns:1fr}.page-heading{align-items:flex-start;flex-direction:column}}
 </style>
