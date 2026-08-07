@@ -41,7 +41,7 @@ const routes = [
     path: '/new-job-discovery',
     name: 'NewJobDiscovery',
     component: () => import('../pages/NewJobDiscovery.vue'),
-    meta: { title: '新岗位发现' },
+    meta: { title: '岗位趋势洞察' },
   },
   {
     path: '/job-evolution',

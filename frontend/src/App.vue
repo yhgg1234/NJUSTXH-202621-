@@ -5,7 +5,7 @@
         <p class="project-code">XH-202621</p>
         <h1>岗位能力图谱系统</h1>
       </div>
-      <p class="header-sub">多源异构数据驱动 · 大模型抽取 · 动态演化分析</p>
+      <p class="header-sub">多源数据融合 · 岗位能力洞察 · 人岗智能匹配</p>
     </header>
     <Navbar />
     <main>
