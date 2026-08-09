@@ -946,7 +946,8 @@ def _trend_score(counts: list[int]) -> float:
 def _most_common(values: list[str]) -> str:
     if not values:
         return ""
-    return Counter(values).most_common(1)[0][0]
+    # 按频率降序，平局时按字母序升序，确保不同运行结果一致。
+    return sorted(Counter(values).items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
 def _top_texts(values: list[str], limit: int) -> list[str]:
