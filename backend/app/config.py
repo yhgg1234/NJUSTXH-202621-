@@ -62,6 +62,10 @@ class Settings:
         "DISCOVERY_STATE_PATH",
         BASE_DIR / "data" / "processed" / "discovery" / "state.json",
     )
+    DISCOVERY_QUALITY_REPORT_PATH: Path = _project_path(
+        "DISCOVERY_QUALITY_REPORT_PATH",
+        BASE_DIR / "data" / "processed" / "discovery" / "quality_report.json",
+    )
 
 
 settings = Settings()

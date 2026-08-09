@@ -6,12 +6,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha1
+import json
+import logging
 from math import fsum
+from pathlib import Path
 import re
 from statistics import median
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from app.config import settings
 from app.discovery.data_source import (
     NormalizedJobRecord,
     NormalizedRecordReader,
@@ -40,6 +44,7 @@ from app.discovery.models import (
     EvidenceType,
     EvaluationMetric,
     NewJobCandidate,
+    QualityReport,
     utc_now,
 )
 from app.discovery.state import DiscoveryStateStore
@@ -139,6 +144,7 @@ class DiscoveryService:
         candidates = [
             self._store.get_candidate(item.candidate_id) or item for item in candidates
         ]
+        self._save_quality_report(loaded.quality, request, len(candidates))
         skill_ids = {skill for profile in profiles.values() for skill in profile.skill_ids}
         return DiscoverResponse(
             candidates=candidates,
@@ -754,6 +760,46 @@ class DiscoveryService:
             new_job_discovery=new_job_metric,
             ability_changes=change_metric,
         )
+
+    def _save_quality_report(
+        self, quality: Any, request: DiscoverRequest, candidate_count: int
+    ) -> None:
+        """将数据质量统计导出为 quality_report.json，用于验收审计。"""
+        report = QualityReport(
+            algorithm=ALGORITHM_VERSION,
+            request={
+                "novelty_threshold": request.novelty_threshold,
+                "min_frequency": request.min_frequency,
+                "min_companies": request.min_companies,
+                "min_sources": request.min_sources,
+                "cluster_similarity_threshold": request.cluster_similarity_threshold,
+                "min_confidence": request.min_confidence,
+                "granularity": request.granularity,
+                **(
+                    {"time_range": [str(item) for item in request.time_range]}
+                    if request.time_range
+                    else {}
+                ),
+            },
+            data_quality=quality,
+            candidates_found=candidate_count,
+            candidates_adopted=0,
+        )
+        path = Path(settings.DISCOVERY_QUALITY_REPORT_PATH)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            with temporary.open("w", encoding="utf-8") as stream:
+                json.dump(
+                    report.model_dump(mode="json"),
+                    stream,
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            temporary.replace(path)
+        except OSError:
+            logging.warning("无法写入 quality_report.json: %s", path)
 
 
 def _candidate_skills(

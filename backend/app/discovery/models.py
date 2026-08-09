@@ -129,7 +129,19 @@ class DiscoveryDataQuality(BaseModel):
     duplicate_records: int = Field(ge=0)
     excluded_missing_published_at: int = Field(ge=0)
     excluded_outside_time_range: int = Field(ge=0)
+    excluded_low_confidence: int = Field(default=0, ge=0)
     warnings: list[str] = Field(default_factory=list)
+
+
+class QualityReport(BaseModel):
+    """每次发现执行后导出的数据质量报告，用于验收审计。"""
+
+    generated_at: datetime = Field(default_factory=utc_now)
+    algorithm: str = "skill-community-novelty-v1"
+    request: dict[str, object] = Field(default_factory=dict)
+    data_quality: DiscoveryDataQuality
+    candidates_found: int = Field(ge=0)
+    candidates_adopted: int = Field(ge=0)
 
 
 class DiscoverResponse(BaseModel):
