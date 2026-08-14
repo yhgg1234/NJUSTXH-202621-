@@ -233,11 +233,26 @@ def test_task_2_2_1000_records_can_be_imported_through_graph_api():
         if relationship.type.value in {"REQUIRES_SKILL", "BONUS_SKILL"}
         and relationship.properties.get("period_key")
     ]
+    cpp_skills = [
+        skill
+        for record in normalized_records
+        for skill in record.get("skills", [])
+        if skill.get("raw_name", "").strip().lower()
+        in {"c++", "cpp", "cplusplus"}
+    ]
+    cpp_nodes = [
+        node
+        for node in payload.nodes
+        if node.id in {"skill:c++", "skill:cpp", "skill:cplusplus"}
+    ]
 
     assert len(normalized_records) == 1000
-    assert len(payload.nodes) == 1307
-    assert len(payload.relationships) == 2403
-    assert len(periodic_relationships) == 539
+    assert len(payload.nodes) == 1304
+    assert len(payload.relationships) == 2377
+    assert len(periodic_relationships) == 513
+    assert cpp_skills
+    assert {skill["canonical_id"] for skill in cpp_skills} == {"skill:c++"}
+    assert [(node.id, node.name) for node in cpp_nodes] == [("skill:c++", "C++")]
     assert {item.properties["period_key"] for item in periodic_relationships} == {
         "2023-07",
         "2023-08",
@@ -265,11 +280,11 @@ def test_task_2_2_1000_records_can_be_imported_through_graph_api():
     assert response.status_code == 200
     assert response.json() == {
         "batch_id": payload.batch_id,
-        "nodes_upserted": 1307,
-        "relationships_upserted": 2403,
+        "nodes_upserted": 1304,
+        "relationships_upserted": 2377,
     }
-    assert stats_response.json()["node_count"] == 1307
-    assert stats_response.json()["relationship_count"] == 2403
+    assert stats_response.json()["node_count"] == 1304
+    assert stats_response.json()["relationship_count"] == 2377
     options = options_response.json()
     assert len(options["jobs"]) == 20
     assert len(options["tech_stacks"]) == 2

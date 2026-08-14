@@ -2,6 +2,8 @@
   "python": {"type": "Skill", "id": "skill:python", "name": "Python", "category": "编程语言"},
   "java": {"type": "Skill", "id": "skill:java", "name": "Java", "category": "编程语言"},
   "c++": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
+  "cpp": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
+  "cplusplus": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
   "go": {"type": "Skill", "id": "skill:go", "name": "Go", "category": "编程语言"},
   "javascript": {"type": "Skill", "id": "skill:javascript", "name": "JavaScript", "category": "编程语言"},
   "sql": {"type": "Skill", "id": "skill:sql", "name": "SQL", "category": "数据库与存储"},

@@ -521,17 +521,20 @@ class EntityAlignmentPipeline:
                 for fallback_name in fallback_skills(record.get("extracted_skills")):
                     if fallback_name.lower() in ignored_job_names:
                         continue
-                    # Keep the legacy fallback convention used by the accepted v3
-                    # delivery.  Fallbacks are deliberately not synonym-aligned:
-                    # they are review candidates extracted from the auxiliary
-                    # column, not confirmed entities from extracted_entities_json.
-                    canonical = {
-                        "id": generate_ascii_slug("skill", fallback_name.lower()),
-                        "name": fallback_name,
-                        "type": "Skill",
-                        "category": "Domain Specific",
-                        "is_new": True,
-                    }
+                    registry_entry = self.registry.get(fallback_name.lower().strip())
+                    if registry_entry and registry_entry.get("type") == "Skill":
+                        # Auxiliary-column fallbacks must reuse known canonical
+                        # skills as well.  This keeps C++, cpp and cplusplus on
+                        # the same node instead of producing skill:cplusplus.
+                        canonical = self._align_entity("skill", fallback_name)
+                    else:
+                        canonical = {
+                            "id": generate_ascii_slug("skill", fallback_name.lower()),
+                            "name": fallback_name,
+                            "type": "Skill",
+                            "category": "Domain Specific",
+                            "is_new": True,
+                        }
                     evidence, fallback_type = extract_evidence_and_type(
                         fallback_name,
                         requirements,
