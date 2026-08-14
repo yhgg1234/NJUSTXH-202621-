@@ -231,7 +231,10 @@ class Neo4jGraphRepository:
             MATCH (job)-[:REQUIRES_SKILL|BONUS_SKILL]->(:Skill)-[:BELONGS_TO_STACK]->(t:TechStack)
             WHERE t.name = $tech_stack
           })
-        WITH job LIMIT $limit
+        WITH job ORDER BY job.name, job.id LIMIT $query_limit
+        WITH collect(job) AS matched_jobs
+        WITH matched_jobs[0..$limit] AS jobs, size(matched_jobs) > $limit AS truncated
+        UNWIND jobs AS job
         OPTIONAL MATCH path=(job)-[r]-(neighbor:GraphEntity)
         WHERE r IS NULL
           OR $include_history
@@ -246,9 +249,9 @@ class Neo4jGraphRepository:
                     > coalesce(r.valid_from, r.period_start, r.observed_at)
           })
         WITH collect(DISTINCT job) + collect(DISTINCT neighbor) AS raw_nodes,
-             collect(DISTINCT r) AS relationships
+             collect(DISTINCT r) AS relationships, truncated
         UNWIND raw_nodes AS node
-        WITH collect(DISTINCT node) AS nodes, relationships
+        WITH collect(DISTINCT node) AS nodes, relationships, truncated
         RETURN [node IN nodes WHERE node IS NOT NULL | {
                  id: node.id, label: node.name,
                  type: [label IN labels(node) WHERE label <> 'GraphEntity'][0],
@@ -257,7 +260,8 @@ class Neo4jGraphRepository:
                [rel IN relationships WHERE rel IS NOT NULL | {
                  id: rel.id, source: startNode(rel).id, target: endNode(rel).id,
                  type: type(rel), properties: properties(rel)
-               }] AS links
+               }] AS links,
+               truncated
         """
         parameters = {
             "job_id": job_id,
@@ -268,14 +272,56 @@ class Neo4jGraphRepository:
             "as_of": as_of.isoformat() if as_of else None,
             "include_history": include_history,
             "limit": limit,
+            "query_limit": limit + 1,
         }
         with self.driver.session(database=settings.NEO4J_DATABASE) as session:
             record = session.run(query, **parameters).single()
         result = {
             "nodes": record["nodes"] if record else [],
             "links": record["links"] if record else [],
+            "truncated": record["truncated"] if record else False,
         }
         return _json_compatible(result)
+
+    def get_filter_options(self) -> dict[str, list[dict[str, str]]]:
+        """返回图谱中实际可用的筛选值，避免前端依赖硬编码。"""
+
+        queries = {
+            "jobs": """
+                MATCH (job:Job)
+                RETURN DISTINCT job.id AS value, job.name AS label
+                ORDER BY label, value
+            """,
+            "tech_stacks": """
+                MATCH (:Job)-[:REQUIRES_SKILL|BONUS_SKILL]->(:Skill)
+                      -[:BELONGS_TO_STACK]->(stack:TechStack)
+                RETURN DISTINCT stack.name AS value, stack.name AS label
+                ORDER BY label
+            """,
+            "levels": """
+                MATCH (job:Job)
+                WHERE job.level IS NOT NULL AND trim(toString(job.level)) <> ''
+                RETURN DISTINCT toString(job.level) AS value, toString(job.level) AS label
+                ORDER BY label
+            """,
+            "industries": """
+                MATCH (:Job)-[:APPLIES_TO_INDUSTRY]->(industry:Industry)
+                RETURN DISTINCT industry.name AS value, industry.name AS label
+                ORDER BY label
+            """,
+            "periods": """
+                MATCH (:Job)-[relationship:REQUIRES_SKILL|BONUS_SKILL]->(:Skill)
+                WHERE relationship.period_key IS NOT NULL
+                RETURN DISTINCT toString(relationship.period_key) AS value,
+                                toString(relationship.period_key) AS label
+                ORDER BY value DESC
+            """,
+        }
+        with self.driver.session(database=settings.NEO4J_DATABASE) as session:
+            return {
+                key: [dict(record) for record in session.run(query)]
+                for key, query in queries.items()
+            }
 
     def get_job_evolution_rows(
         self,

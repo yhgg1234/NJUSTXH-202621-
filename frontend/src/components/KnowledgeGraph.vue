@@ -6,31 +6,67 @@
         <h2>岗位能力全景图谱</h2>
         <p class="description">按岗位、技术栈、级别与行业探索技能点之间的关联。</p>
       </div>
-      <button class="primary-button" :disabled="loading" @click="loadGraph">
+      <button class="primary-button" :disabled="loading || optionsLoading" @click="refreshGraph">
         {{ loading ? '加载中…' : '刷新图谱' }}
       </button>
     </div>
 
     <form class="filters" @submit.prevent="loadGraph">
-      <label>
-        <span>岗位 ID</span>
-        <input v-model.trim="filters.job_id" placeholder="job:ai-agent-engineer" />
-      </label>
-      <label>
+      <div class="filter-field">
+        <span>岗位</span>
+        <SearchSelect
+          v-model="filters.job_id"
+          :options="filterOptions.jobs"
+          :disabled="optionsLoading"
+          placeholder="全部岗位"
+          search-placeholder="搜索岗位名称或 ID"
+          empty-label="全部岗位"
+          aria-label="岗位"
+        />
+      </div>
+      <label class="filter-field">
         <span>技术栈</span>
-        <input v-model.trim="filters.tech_stack" placeholder="大模型应用开发" />
+        <select v-model="filters.tech_stack" :disabled="optionsLoading">
+          <option value="">全部技术栈</option>
+          <option v-for="option in filterOptions.tech_stacks" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
       </label>
-      <label>
+      <label class="filter-field">
         <span>岗位级别</span>
-        <input v-model.trim="filters.level" placeholder="中级" />
+        <select v-model="filters.level" :disabled="optionsLoading">
+          <option value="">全部级别</option>
+          <option v-for="option in levelOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
       </label>
-      <label>
+      <div class="filter-field">
         <span>行业</span>
-        <input v-model.trim="filters.industry" placeholder="人工智能" />
+        <SearchSelect
+          v-model="filters.industry"
+          :options="filterOptions.industries"
+          :disabled="optionsLoading"
+          placeholder="全部行业"
+          search-placeholder="搜索行业名称"
+          empty-label="全部行业"
+          aria-label="行业"
+        />
+      </div>
+      <label class="filter-field">
+        <span>数据月份</span>
+        <select v-model="filters.period" :disabled="optionsLoading">
+          <option value="">最新数据</option>
+          <option v-for="option in filterOptions.periods" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
       </label>
       <button class="filter-button" type="submit">应用筛选</button>
       <button class="ghost-button" type="button" @click="resetFilters">重置</button>
     </form>
+    <p v-if="optionsError" class="filter-error">{{ optionsError }}</p>
 
     <div class="graph-layout">
       <div class="canvas-wrap">
@@ -68,21 +104,25 @@
 </template>
 
 <script setup>
-import axios from 'axios'
 import { GraphChart } from 'echarts/charts'
 import { LegendComponent, TooltipComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import kgApi from '../api/kg'
+import SearchSelect from './SearchSelect.vue'
 
 echarts.use([GraphChart, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const chartElement = ref(null)
 const loading = ref(false)
+const optionsLoading = ref(false)
 const error = ref('')
+const optionsError = ref('')
 const selectedNode = ref(null)
 const graph = reactive({ nodes: [], links: [], truncated: false })
-const filters = reactive({ job_id: '', tech_stack: '', level: '', industry: '' })
+const filters = reactive({ job_id: '', tech_stack: '', level: '', industry: '', period: '' })
+const filterOptions = reactive({ jobs: [], tech_stacks: [], levels: [], industries: [], periods: [] })
 let chart
 let resizeObserver
 
@@ -95,6 +135,14 @@ const typeColors = {
   Job: '#2563eb', Skill: '#10b981', TechStack: '#8b5cf6', Industry: '#f59e0b',
   Certificate: '#ec4899', Education: '#06b6d4', Project: '#f97316', Company: '#64748b', Source: '#94a3b8',
 }
+
+const levelNames = {
+  intern: '实习', junior: '初级', mid: '中级', senior: '高级', expert: '专家', unknown: '未知',
+}
+const levelOptions = computed(() => filterOptions.levels.map((option) => ({
+  ...option,
+  label: `${levelNames[option.value] || option.label}（${option.value}）`,
+})))
 
 const visibleProperties = computed(() => {
   if (!selectedNode.value) return {}
@@ -157,7 +205,7 @@ async function loadGraph() {
   error.value = ''
   try {
     const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
-    const { data } = await axios.get('/api/graph/subgraph', { params: { ...params, limit: 100 } })
+    const data = await kgApi.getSubgraph({ ...params, limit: 100 })
     Object.assign(graph, data)
     selectedNode.value = null
     await nextTick()
@@ -171,15 +219,33 @@ async function loadGraph() {
   }
 }
 
+async function loadFilterOptions() {
+  optionsLoading.value = true
+  optionsError.value = ''
+  try {
+    Object.assign(filterOptions, await kgApi.getFilterOptions())
+  } catch {
+    optionsError.value = '筛选选项加载失败，请确认后端与 Neo4j 已启动。'
+  } finally {
+    optionsLoading.value = false
+  }
+}
+
+async function refreshGraph() {
+  await loadFilterOptions()
+  await loadGraph()
+}
+
 function resetFilters() {
   Object.keys(filters).forEach((key) => { filters[key] = '' })
   loadGraph()
 }
 
-onMounted(() => {
+onMounted(async () => {
   resizeObserver = new ResizeObserver(() => chart?.resize())
   resizeObserver.observe(chartElement.value)
-  loadGraph()
+  await loadFilterOptions()
+  await loadGraph()
 })
 
 onBeforeUnmount(() => {
@@ -194,14 +260,17 @@ onBeforeUnmount(() => {
 .eyebrow { margin: 0 0 5px; color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
 h2 { margin: 0; color: #0f172a; font-size: 26px; }
 .description { margin: 8px 0 0; color: #64748b; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; border: 0; border-radius: 9px; font-weight: 650; }
 .primary-button { padding: 11px 17px; color: #fff; background: #2563eb; }
 .primary-button:disabled { cursor: wait; opacity: .65; }
-.filters { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto; gap: 12px; margin: 24px 0 18px; padding: 16px; background: #f8fafc; border-radius: 13px; }
-label span { display: block; margin-bottom: 6px; color: #475569; font-size: 12px; font-weight: 700; }
-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 10px; outline: none; color: #0f172a; background: #fff; }
-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.filters { display: grid; grid-template-columns: minmax(190px, 1.25fr) repeat(4, minmax(130px, 1fr)) auto auto; gap: 12px; margin: 24px 0 18px; padding: 16px; background: #f8fafc; border-radius: 13px; }
+.filter-field { min-width: 0; }
+.filter-field > span { display: block; margin-bottom: 6px; color: #475569; font-size: 12px; font-weight: 700; }
+select { box-sizing: border-box; width: 100%; height: 40px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 32px 0 10px; outline: none; color: #0f172a; background: #fff; }
+select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+select:disabled { cursor: wait; color: #94a3b8; background: #f8fafc; }
+.filter-error { margin: -10px 16px 16px; color: #b91c1c; font-size: 13px; }
 .filter-button, .ghost-button { align-self: end; height: 38px; padding: 0 14px; }
 .filter-button { color: #fff; background: #0f172a; }
 .ghost-button { color: #334155; background: #e2e8f0; }

@@ -9,6 +9,7 @@ from app.graph.dependencies import get_graph_service
 from app.graph.models import (
     GraphImportRequest,
     GraphImportResult,
+    GraphFilterOptionsResponse,
     GraphNode,
     GraphRelationship,
     SubgraphResponse,
@@ -80,7 +81,12 @@ def get_subgraph(
         include_history=include_history,
         limit=limit,
     )
-    return SubgraphResponse(**result, truncated=len(result["nodes"]) >= limit)
+    return SubgraphResponse(**result)
+
+
+@router.get("/filter-options", response_model=GraphFilterOptionsResponse)
+def get_filter_options(service: Service) -> GraphFilterOptionsResponse:
+    return GraphFilterOptionsResponse(**service.get_filter_options())
 
 
 @router.get("/stats")

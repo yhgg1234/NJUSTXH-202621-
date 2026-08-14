@@ -181,6 +181,7 @@ Swagger 文档位于 `http://localhost:8000/docs`，Neo4j Browser 位于 `http:/
 | `PUT /api/graph/nodes/{id}` | 人工新增或修正单个节点 |
 | `PUT /api/graph/relationships/{id}` | 人工新增或修正单条关系 |
 | `GET /api/graph/subgraph` | 返回前端可视化所需 `nodes` 与 `links` |
+| `GET /api/graph/filter-options` | 返回岗位、技术栈、级别、行业和月份的可用筛选项 |
 | `GET /api/graph/stats` | 返回节点、关系及类型统计 |
 
 `subgraph` 支持 `job_id`、`tech_stack`、`level`、`industry`、`period`、`as_of`、

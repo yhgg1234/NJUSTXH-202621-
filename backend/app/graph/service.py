@@ -15,6 +15,7 @@ class GraphRepository(Protocol):
     ) -> int: ...
     def find_missing_node_ids(self, node_ids: set[str]) -> set[str]: ...
     def get_subgraph(self, **kwargs): ...
+    def get_filter_options(self): ...
     def get_job_evolution_rows(
         self, *, job_id: str, start: date | None, end: date | None, granularity: str
     ): ...
@@ -69,6 +70,9 @@ class GraphService:
         filters.setdefault("as_of", None)
         filters.setdefault("include_history", False)
         return self.repository.get_subgraph(**filters)
+
+    def get_filter_options(self):
+        return self.repository.get_filter_options()
 
     def get_job_evolution_rows(
         self, *, job_id: str, start: date | None, end: date | None, granularity: str

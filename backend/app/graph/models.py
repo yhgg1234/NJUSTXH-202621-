@@ -210,3 +210,16 @@ class SubgraphResponse(BaseModel):
     nodes: list[dict[str, Any]]
     links: list[dict[str, Any]]
     truncated: bool = False
+
+
+class GraphFilterOption(BaseModel):
+    value: str
+    label: str
+
+
+class GraphFilterOptionsResponse(BaseModel):
+    jobs: list[GraphFilterOption] = Field(default_factory=list)
+    tech_stacks: list[GraphFilterOption] = Field(default_factory=list)
+    levels: list[GraphFilterOption] = Field(default_factory=list)
+    industries: list[GraphFilterOption] = Field(default_factory=list)
+    periods: list[GraphFilterOption] = Field(default_factory=list)

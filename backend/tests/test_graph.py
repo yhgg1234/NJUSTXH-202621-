@@ -1,5 +1,8 @@
 """子任务 2.3 图谱服务与 API 测试，不依赖真实 Neo4j。"""
 
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.graph.dependencies import get_graph_service
@@ -77,6 +80,46 @@ class FakeGraphRepository:
             ],
         }
 
+    def get_filter_options(self):
+        def options(node_type):
+            return sorted(
+                [
+                    {"value": node.id, "label": node.name}
+                    for node in self.nodes.values()
+                    if node.type.value == node_type
+                ],
+                key=lambda item: (item["label"], item["value"]),
+            )
+
+        levels = sorted(
+            {
+                str(node.properties["level"])
+                for node in self.nodes.values()
+                if node.type.value == "Job" and node.properties.get("level")
+            }
+        )
+        periods = sorted(
+            {
+                str(relationship.properties["period_key"])
+                for relationship in self.relationships.values()
+                if relationship.properties.get("period_key")
+            },
+            reverse=True,
+        )
+        return {
+            "jobs": options("Job"),
+            "tech_stacks": [
+                {"value": item["label"], "label": item["label"]}
+                for item in options("TechStack")
+            ],
+            "levels": [{"value": value, "label": value} for value in levels],
+            "industries": [
+                {"value": item["label"], "label": item["label"]}
+                for item in options("Industry")
+            ],
+            "periods": [{"value": value, "label": value} for value in periods],
+        }
+
     def get_stats(self):
         return {
             "node_count": len(self.nodes),
@@ -151,6 +194,7 @@ def test_graph_api_import_query_and_stats():
             "/api/graph/import", json=sample_request().model_dump(mode="json")
         )
         subgraph_response = client.get("/api/graph/subgraph?job_id=job:ai-agent")
+        options_response = client.get("/api/graph/filter-options")
         stats_response = client.get("/api/graph/stats")
     finally:
         app.dependency_overrides.clear()
@@ -158,7 +202,89 @@ def test_graph_api_import_query_and_stats():
     assert import_response.status_code == 200
     assert import_response.json()["relationships_upserted"] == 1
     assert len(subgraph_response.json()["nodes"]) == 2
+    assert options_response.json()["jobs"] == [
+        {"value": "job:ai-agent", "label": "AI Agent开发工程师"}
+    ]
     assert stats_response.json()["node_count"] == 2
+
+
+def test_task_2_2_1000_records_can_be_imported_through_graph_api():
+    """使用 2.2 的千条联调批次验证 2.3 完整导入契约。"""
+
+    data_dir = Path(__file__).parents[2] / "data" / "demo" / "task_2_2_1000"
+    graph_payload = json.loads(
+        (data_dir / "graph_import_batch.json").read_text(encoding="utf-8")
+    )
+    normalized_records = [
+        json.loads(line)
+        for line in (data_dir / "normalized_records.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    payload = GraphImportRequest.model_validate(graph_payload)
+
+    source_nodes = {
+        node.id: node for node in payload.nodes if node.type.value == "Source"
+    }
+    periodic_relationships = [
+        relationship
+        for relationship in payload.relationships
+        if relationship.type.value in {"REQUIRES_SKILL", "BONUS_SKILL"}
+        and relationship.properties.get("period_key")
+    ]
+
+    assert len(normalized_records) == 1000
+    assert len(payload.nodes) == 1307
+    assert len(payload.relationships) == 2403
+    assert len(periodic_relationships) == 539
+    assert {item.properties["period_key"] for item in periodic_relationships} == {
+        "2023-07",
+        "2023-08",
+        "2023-09",
+        "2023-10",
+    }
+    assert all(
+        source_nodes[record["source_id"]].properties["published_at"]
+        == record["published_at"]
+        for record in normalized_records
+    )
+
+    repository = FakeGraphRepository()
+    client = TestClient(app)
+    app.dependency_overrides[get_graph_service] = lambda: GraphService(repository)
+    try:
+        response = client.post(
+            "/api/graph/import", json=payload.model_dump(mode="json")
+        )
+        options_response = client.get("/api/graph/filter-options")
+        stats_response = client.get("/api/graph/stats")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "batch_id": payload.batch_id,
+        "nodes_upserted": 1307,
+        "relationships_upserted": 2403,
+    }
+    assert stats_response.json()["node_count"] == 1307
+    assert stats_response.json()["relationship_count"] == 2403
+    options = options_response.json()
+    assert len(options["jobs"]) == 20
+    assert len(options["tech_stacks"]) == 2
+    assert {item["value"] for item in options["levels"]} == {
+        "unknown",
+        "mid",
+        "senior",
+    }
+    assert len(options["industries"]) == 9
+    assert [item["value"] for item in options["periods"]] == [
+        "2023-10",
+        "2023-09",
+        "2023-08",
+        "2023-07",
+    ]
 
 
 def test_reserved_properties_are_rejected():
