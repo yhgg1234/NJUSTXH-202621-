@@ -42,12 +42,28 @@ class JobEvolutionService:
 
     def analyze(self, query: JobEvolutionQuery) -> JobEvolutionResponse:
         start, end = query.time_range if query.time_range else (None, None)
+        # 2.2 的冻结交付以 published_at 生成月度快照。季度是 3.1 的分析视图，
+        # 不要求上游额外生成一套季度关系，也不把季度结果写回 2.3。
+        source_granularity = (
+            "monthly" if query.granularity.value == "quarterly" else query.granularity.value
+        )
         rows = self.reader.get_job_evolution_rows(
             job_id=query.job_id,
             start=start,
             end=end,
-            granularity=query.granularity.value,
+            granularity=source_granularity,
         )
+        if query.granularity.value == "quarterly":
+            if any(_MONTHLY_PERIOD.fullmatch(str(row.get("period") or "")) for row in rows):
+                rows = _rollup_monthly_rows(rows, "quarterly")
+            elif not rows:
+                # 兼容已经按旧方式直接导入季度快照的 2.3 数据。
+                rows = self.reader.get_job_evolution_rows(
+                    job_id=query.job_id,
+                    start=start,
+                    end=end,
+                    granularity="quarterly",
+                )
         return self._build_response(query, rows)
 
     def _build_response(
@@ -391,6 +407,11 @@ class JobEvolutionService:
             warnings.append("部分关系缺少可解析的周期起点；请检查 period_start/valid_from 的 ISO-8601 格式。")
         if rows and any(not row.get("evidence_ids") for row in rows):
             warnings.append("部分周期关系缺少证据来源，相关变化项无法完成数据溯源。")
+        if any(row.get("aggregation_incomplete") for row in rows):
+            warnings.append(
+                "部分季度仅覆盖 1-2 个月；结果按已有 published_at 月度样本汇总，"
+                "不将缺失月份解释为零需求。"
+            )
         semantic_keys = [
             (
                 str(row.get("period") or "").strip(),
@@ -401,6 +422,21 @@ class JobEvolutionService:
         ]
         if any(count > 1 for count in Counter(semantic_keys).values()):
             warnings.append("发现同一技能在同一周期存在重复关系；已按最大去重 JD 数计算，请检查 C 层唯一性。")
+        skill_ids_by_name: dict[str, set[str]] = defaultdict(set)
+        for row in rows:
+            skill_name = str(row.get("skill_name") or "").strip()
+            skill_id = str(row.get("skill_id") or "").strip()
+            if skill_name and skill_id:
+                skill_ids_by_name[skill_name].add(skill_id)
+        duplicate_names = sorted(
+            name for name, skill_ids in skill_ids_by_name.items() if len(skill_ids) > 1
+        )
+        if duplicate_names:
+            preview = "、".join(duplicate_names[:5])
+            warnings.append(
+                f"发现同名技能对应多个标准 ID（{preview}）；3.1 保留上游稳定 ID，"
+                "请在 2.2 词典中完成实体合并后重算。"
+            )
         counts_by_period: dict[str, set[int]] = defaultdict(set)
         for row in rows:
             period = str(row.get("period") or "").strip()
@@ -464,6 +500,150 @@ def _linear_slope(values: list[float]) -> float:
 
 _MONTHLY_PERIOD = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 _QUARTERLY_PERIOD = re.compile(r"^(\d{4})Q([1-4])$")
+
+
+def _rollup_monthly_rows(
+    rows: list[dict[str, Any]], granularity: str
+) -> list[dict[str, Any]]:
+    """把 published_at 月度快照汇总为 3.1 的季度分析视图。"""
+
+    if granularity != "quarterly":
+        return rows
+
+    monthly_rows: dict[tuple[str, str], dict[str, Any]] = {}
+    month_job_counts: dict[str, int] = {}
+    for row in rows:
+        month = str(row.get("period") or "").strip()
+        skill_id = str(row.get("skill_id") or "").strip()
+        if not _MONTHLY_PERIOD.fullmatch(month) or not skill_id:
+            continue
+        month_job_counts[month] = max(
+            month_job_counts.get(month, 0), _to_int(row.get("job_jd_count"))
+        )
+        key = (month, skill_id)
+        current = monthly_rows.get(key)
+        if current is None:
+            current = dict(row)
+            evidence = row.get("evidence_ids") or []
+            if isinstance(evidence, str):
+                evidence = [evidence]
+            current["evidence_ids"] = set(str(item) for item in evidence if item)
+            monthly_rows[key] = current
+            continue
+
+        # 异常重复月度关系使用最大计数并合并证据，保持与月度分析一致的降级语义。
+        for count_key in (
+            "skill_jd_count",
+            "required_jd_count",
+            "preferred_jd_count",
+        ):
+            current[count_key] = max(
+                _to_int(current.get(count_key)), _to_int(row.get(count_key))
+            )
+        current["job_jd_count"] = max(
+            _to_int(current.get("job_jd_count")), _to_int(row.get("job_jd_count"))
+        )
+        evidence = row.get("evidence_ids") or []
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        current["evidence_ids"].update(str(item) for item in evidence if item)
+
+    target_months: dict[str, set[str]] = defaultdict(set)
+    target_job_counts: dict[str, int] = defaultdict(int)
+    for month, job_jd_count in month_job_counts.items():
+        target = _quarter_for_month(month)
+        target_months[target].add(month)
+        target_job_counts[target] += job_jd_count
+
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for (month, skill_id), row in monthly_rows.items():
+        target = _quarter_for_month(month)
+        key = (target, skill_id)
+        skill_count = _to_int(row.get("skill_jd_count", row.get("frequency", 0)))
+        relationship_type = str(row.get("relationship_type") or "REQUIRES_SKILL")
+        required_count = _to_int(row.get("required_jd_count"))
+        preferred_count = _to_int(row.get("preferred_jd_count"))
+        if "required_jd_count" not in row and relationship_type == "REQUIRES_SKILL":
+            required_count = skill_count
+        if "preferred_jd_count" not in row and relationship_type == "BONUS_SKILL":
+            preferred_count = skill_count
+
+        aggregate = grouped.setdefault(
+            key,
+            {
+                "period": target,
+                "period_start": _quarter_start(target),
+                "job_id": row.get("job_id"),
+                "job_name": row.get("job_name"),
+                "skill_id": skill_id,
+                "skill_name": row.get("skill_name") or skill_id,
+                "skill_jd_count": 0,
+                "required_jd_count": 0,
+                "preferred_jd_count": 0,
+                "confidence_weighted_sum": 0.0,
+                "confidence_weight": 0,
+                "evidence_ids": set(),
+            },
+        )
+        aggregate["skill_jd_count"] += skill_count
+        aggregate["required_jd_count"] += required_count
+        aggregate["preferred_jd_count"] += preferred_count
+        weight = max(1, skill_count)
+        aggregate["confidence_weighted_sum"] += _to_float(
+            row.get("confidence"), default=1.0
+        ) * weight
+        aggregate["confidence_weight"] += weight
+        aggregate["evidence_ids"].update(row.get("evidence_ids") or set())
+
+    result: list[dict[str, Any]] = []
+    for (target, _), aggregate in grouped.items():
+        job_jd_count = target_job_counts[target]
+        skill_jd_count = min(aggregate["skill_jd_count"], job_jd_count)
+        required_jd_count = min(aggregate["required_jd_count"], skill_jd_count)
+        preferred_jd_count = min(aggregate["preferred_jd_count"], skill_jd_count)
+        demand_ratio = skill_jd_count / job_jd_count if job_jd_count else 0.0
+        required_ratio = required_jd_count / skill_jd_count if skill_jd_count else 0.0
+        result.append(
+            {
+                "period": target,
+                "period_start": aggregate["period_start"],
+                "job_id": aggregate["job_id"],
+                "job_name": aggregate["job_name"],
+                "skill_id": aggregate["skill_id"],
+                "skill_name": aggregate["skill_name"],
+                "relationship_type": (
+                    "REQUIRES_SKILL" if required_jd_count > 0 else "BONUS_SKILL"
+                ),
+                "skill_jd_count": skill_jd_count,
+                "job_jd_count": job_jd_count,
+                "required_jd_count": required_jd_count,
+                "preferred_jd_count": preferred_jd_count,
+                "demand_ratio": round(demand_ratio, 4),
+                "importance": round(0.7 * demand_ratio + 0.3 * required_ratio, 4),
+                "confidence": round(
+                    aggregate["confidence_weighted_sum"]
+                    / aggregate["confidence_weight"],
+                    4,
+                ),
+                "evidence_ids": sorted(aggregate["evidence_ids"]),
+                "aggregation_incomplete": len(target_months[target]) < 3,
+            }
+        )
+    return sorted(result, key=lambda row: (row["period_start"], row["skill_name"]))
+
+
+def _quarter_for_month(period: str) -> str:
+    year, month = (int(value) for value in period.split("-"))
+    return f"{year}Q{(month - 1) // 3 + 1}"
+
+
+def _quarter_start(period: str) -> str:
+    match = _QUARTERLY_PERIOD.fullmatch(period)
+    if not match:
+        return ""
+    year, quarter = (int(value) for value in match.groups())
+    month = (quarter - 1) * 3 + 1
+    return f"{year:04d}-{month:02d}-01T00:00:00+08:00"
 
 
 def _period_index(period: str, granularity: str) -> int | None:

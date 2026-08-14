@@ -354,6 +354,14 @@ class Neo4jGraphRepository:
                type(r) AS relationship_type,
                coalesce(r.skill_jd_count, r.frequency, 0) AS skill_jd_count,
                coalesce(r.job_jd_count, 0) AS job_jd_count,
+               coalesce(r.required_jd_count,
+                        CASE WHEN type(r) = 'REQUIRES_SKILL'
+                             THEN coalesce(r.skill_jd_count, r.frequency, 0)
+                             ELSE 0 END) AS required_jd_count,
+               coalesce(r.preferred_jd_count,
+                        CASE WHEN type(r) = 'BONUS_SKILL'
+                             THEN coalesce(r.skill_jd_count, r.frequency, 0)
+                             ELSE 0 END) AS preferred_jd_count,
                r.demand_ratio AS demand_ratio,
                coalesce(r.importance, 0) AS importance,
                coalesce(r.confidence, 1.0) AS confidence,

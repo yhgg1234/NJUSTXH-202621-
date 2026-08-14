@@ -31,7 +31,7 @@
 | 数据处理管线 | [`data_pipeline/README.md`](data_pipeline/README.md) | 数据处理脚本和管线说明 |
 | 工具脚本 | [`scripts/README.md`](scripts/README.md) | 项目辅助脚本说明 |
 
-当前联调状态：2.4 已支持直接读取 2.2 的 `normalized_records.json/jsonl`，对照 2.3 图谱进行新岗位发现和既有岗位能力更新，并在人工审核后写回 2.3；详见[子任务 2.4 文档](backend/app/discovery/README.md)。3.3 前后端展示链路可基于 demo 数据运行，完整真实数据闭环仍需完成 2.2 数据、2.3 Neo4j 和 3.2 简历画像的实际交接。
+当前联调状态：2.4 已支持直接读取 2.2 的 `normalized_records.json/jsonl`，对照 2.3 图谱进行新岗位发现和既有岗位能力更新，并在人工审核后写回 2.3；详见[子任务 2.4 文档](backend/app/discovery/README.md)。3.1 已支持将 `data/demo/task_2_2_1000/graph_import_batch.json` 实际导入 Neo4j，读取由 `published_at` 生成的月度快照，并在分析层进一步汇总季度演化结果；详见[子任务 3.1 文档](backend/app/jobs/README.md)。3.3 前后端展示链路可基于 demo 数据运行，完整真实简历匹配闭环仍需 3.2 简历画像的实际交接。
 
 ## 技术栈
 

@@ -71,7 +71,30 @@ def test_evolution_builds_snapshots_changes_and_quality_warning():
     assert result.cold_trends[0].skill_name == "Java"
     assert result.prediction.available is False
     assert result.data_quality.period_count == 4
-    assert reader.last_query["granularity"] == "quarterly"
+    assert reader.last_query["granularity"] == "monthly"
+
+
+def test_quarterly_analysis_rolls_up_published_at_monthly_snapshots():
+    rows = [
+        _row("2023-07", "2023-07-01T00:00:00+08:00", "skill:python", "Python", 2, jd_count=4),
+        _row("2023-08", "2023-08-01T00:00:00+08:00", "skill:python", "Python", 3, jd_count=5),
+        _row("2023-09", "2023-09-01T00:00:00+08:00", "skill:python", "Python", 1, jd_count=1),
+        _row("2023-10", "2023-10-01T00:00:00+08:00", "skill:python", "Python", 1, jd_count=2),
+    ]
+
+    result = JobEvolutionService(FakeEvolutionReader(rows)).analyze(
+        JobEvolutionQuery(
+            job_id="job:backend-engineer",
+            granularity=TimeGranularity.QUARTERLY,
+        )
+    )
+
+    assert [point.period for point in result.timeline] == ["2023Q3", "2023Q4"]
+    assert result.timeline[0].jd_count == 10
+    assert result.timeline[0].skill_set[0].skill_jd_count == 6
+    assert result.timeline[0].skill_set[0].demand_ratio == 0.6
+    assert result.timeline[1].jd_count == 2
+    assert any("仅覆盖 1-2 个月" in warning for warning in result.data_quality.warnings)
 
 
 def test_evolution_enables_baseline_prediction_after_six_periods():
@@ -150,6 +173,19 @@ def test_duplicate_semantic_rows_are_not_double_counted_and_are_reported():
     assert any("重复关系" in warning for warning in result.data_quality.warnings)
 
 
+def test_duplicate_skill_names_with_different_ids_are_reported():
+    rows = [
+        _row("2024Q1", "2024-01-01T00:00:00+08:00", "skill:c++", "C++", 40),
+        _row("2024Q1", "2024-01-01T00:00:00+08:00", "skill:cplusplus", "C++", 20),
+    ]
+
+    result = JobEvolutionService(FakeEvolutionReader(rows)).analyze(
+        JobEvolutionQuery(job_id="job:backend-engineer")
+    )
+
+    assert any("同名技能对应多个标准 ID" in warning for warning in result.data_quality.warnings)
+
+
 def test_evolution_api_uses_injected_service():
     reader = FakeEvolutionReader(_four_period_rows())
     app.dependency_overrides[get_job_evolution_service] = lambda: JobEvolutionService(reader)
@@ -224,6 +260,7 @@ def test_evolution_repository_reads_only_matching_periodic_relationships():
     assert rows == []
     assert "r.period_key IS NOT NULL" in driver.query
     assert "r.period_key AS period" in driver.query
+    assert "required_jd_count" in driver.query
     assert "r.observed_at" not in driver.query
     assert "quarterly" in driver.query
     assert driver.parameters["end"] == "2024-12-31"

@@ -4,14 +4,17 @@
       <div>
         <p class="eyebrow">JOB EVOLUTION</p>
         <h2>岗位能力动态演化</h2>
-        <p>按月度或季度观察岗位技能需求、相邻期变化与趋势证据。</p>
+        <p>基于真实发布时间的月度快照，观察月度或季度岗位技能需求与趋势证据。</p>
       </div>
     </div>
 
     <form class="filters" @submit.prevent="loadEvolution">
       <label>
         <span>岗位 ID</span>
-        <input v-model.trim="filters.job_id" placeholder="job:backend-engineer" required />
+        <select v-if="jobOptions.length" v-model="filters.job_id" required>
+          <option v-for="job in jobOptions" :key="job.value" :value="job.value">{{ job.label }}</option>
+        </select>
+        <input v-else v-model.trim="filters.job_id" placeholder="job:algorithm-engineer" required />
       </label>
       <label>
         <span>粒度</span>
@@ -45,7 +48,7 @@
       </button>
     </form>
 
-    <p class="hint">时间范围按资料真实发布时间归期；统计采用去重 JD 占比，而非关键词原始出现次数。</p>
+    <p class="hint">2.2 按 published_at 生成月度快照；季度视图由 3.1 对月度去重 JD 重新汇总，不使用抓取或导出时间。</p>
 
     <div v-if="error" class="message error-message">{{ error }}</div>
     <div v-else-if="!result && !loading" class="message">填写岗位 ID 与时间范围后运行分析。</div>
@@ -115,16 +118,24 @@
           </select>
         </div>
         <div v-if="selectedPoint?.changes_from_previous?.length" class="change-list">
-          <article v-for="change in selectedPoint.changes_from_previous" :key="`${selectedPoint.period}-${change.skill_id}`" class="change-item">
+          <article v-for="change in visibleChanges" :key="`${selectedPoint.period}-${change.skill_id}`" class="change-item">
             <span class="change-badge" :class="change.change_type">{{ changeLabel(change.change_type) }}</span>
             <div>
               <strong>{{ change.skill_name }}</strong>
               <p>{{ formatRatio(change.previous_demand_ratio) }} → {{ formatRatio(change.current_demand_ratio) }}（{{ formatDelta(change.delta) }}）</p>
-              <small v-if="change.evidence_ids.length">证据：{{ change.evidence_ids.join('、') }}</small>
+              <small v-if="change.evidence_ids.length">证据（{{ change.evidence_ids.length }} 条）：{{ formatEvidence(change.evidence_ids) }}</small>
               <small v-else>暂无可用证据</small>
             </div>
           </article>
         </div>
+        <button
+          v-if="selectedPoint?.changes_from_previous?.length > 12"
+          class="text-button"
+          type="button"
+          @click="showAllChanges = !showAllChanges"
+        >
+          {{ showAllChanges ? '收起变化项' : `查看全部 ${selectedPoint.changes_from_previous.length} 项变化` }}
+        </button>
         <div v-else-if="selectedPointIndex === 0" class="empty-state">首个周期作为基准快照，不计算相邻期变化。</div>
         <div v-else class="empty-state">该周期没有超过当前阈值的技能变化。</div>
       </section>
@@ -170,6 +181,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 import jobsApi from '../api/jobs'
+import kgApi from '../api/kg'
 
 echarts.use([LineChart, HeatmapChart, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
@@ -177,13 +189,15 @@ const loading = ref(false)
 const error = ref('')
 const result = ref(null)
 const selectedPeriod = ref('')
+const showAllChanges = ref(false)
 const trendElement = ref(null)
 const heatmapElement = ref(null)
+const jobOptions = ref([])
 const filters = reactive({
-  job_id: 'job:backend-engineer',
+  job_id: 'job:algorithm-engineer',
   granularity: 'quarterly',
-  start: '2024-01-01',
-  end: '2025-12-31',
+  start: '',
+  end: '',
   top_n: 10,
   change_threshold_percent: 5,
   prediction_horizon_months: 6,
@@ -195,6 +209,10 @@ let resizeObserver
 
 const selectedPoint = computed(() => result.value?.timeline.find((point) => point.period === selectedPeriod.value))
 const selectedPointIndex = computed(() => result.value?.timeline.findIndex((point) => point.period === selectedPeriod.value) ?? -1)
+const visibleChanges = computed(() => {
+  const changes = selectedPoint.value?.changes_from_previous || []
+  return showAllChanges.value ? changes : changes.slice(0, 12)
+})
 const periods = computed(() => result.value?.timeline.map((point) => point.period) || [])
 const topSkills = computed(() => {
   const scores = new Map()
@@ -223,6 +241,12 @@ function formatDelta(value) {
 
 function changeLabel(type) {
   return ({ added: '新增', removed: '移除', increased: '增强', decreased: '减弱' })[type] || type
+}
+
+function formatEvidence(evidenceIds) {
+  const visible = evidenceIds.slice(0, 3).join('、')
+  const remaining = evidenceIds.length - 3
+  return remaining > 0 ? `${visible}，另 ${remaining} 条` : visible
 }
 
 function seriesForSkill(skillId) {
@@ -276,7 +300,7 @@ async function loadEvolution() {
   loading.value = true
   error.value = ''
   try {
-    const { data } = await jobsApi.analyzeEvolution({
+    const data = await jobsApi.analyzeEvolution({
       job_id: filters.job_id,
       granularity: filters.granularity,
       time_range: filters.start && filters.end ? [filters.start, filters.end] : null,
@@ -286,6 +310,7 @@ async function loadEvolution() {
     })
     result.value = data
     selectedPeriod.value = data.timeline.at(-1)?.period || ''
+    showAllChanges.value = false
     await nextTick()
     renderCharts()
   } catch (requestError) {
@@ -296,13 +321,40 @@ async function loadEvolution() {
   }
 }
 
-onMounted(() => {
+function monthEnd(period) {
+  const [year, month] = period.split('-').map(Number)
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+}
+
+async function loadOptions() {
+  try {
+    const options = await kgApi.getFilterOptions()
+    jobOptions.value = options.jobs || []
+    if (jobOptions.value.length && !jobOptions.value.some((job) => job.value === filters.job_id)) {
+      filters.job_id = jobOptions.value[0].value
+    }
+    const monthlyPeriods = (options.periods || [])
+      .map((period) => period.value)
+      .filter((period) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period))
+      .sort()
+    if (monthlyPeriods.length) {
+      filters.start = `${monthlyPeriods[0]}-01`
+      filters.end = monthEnd(monthlyPeriods.at(-1))
+    }
+  } catch {
+    // 图谱选项不可用时仍保留手动岗位 ID 输入和日期筛选。
+  }
+}
+
+onMounted(async () => {
   resizeObserver = new ResizeObserver(() => {
     trendChart?.resize()
     heatmapChart?.resize()
   })
   if (trendElement.value) resizeObserver.observe(trendElement.value)
   if (heatmapElement.value) resizeObserver.observe(heatmapElement.value)
+  await loadOptions()
+  if (filters.job_id) await loadEvolution()
 })
 
 onBeforeUnmount(() => {
@@ -349,9 +401,11 @@ input:focus, select:focus { border-color: #2563eb; outline: none; box-shadow: 0 
 .change-item { display: flex; gap: 11px; padding: 13px; border-radius: 12px; background: #f8fafc; }
 .change-item strong { color: #0f172a; }
 .change-item p, .change-item small { display: block; margin: 5px 0 0; color: #64748b; font-size: 12px; }
+.change-item small { overflow-wrap: anywhere; }
 .change-badge { flex: 0 0 auto; height: fit-content; padding: 4px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; }
 .added, .increased { color: #047857; background: #d1fae5; }
 .removed, .decreased { color: #b91c1c; background: #fee2e2; }
+.text-button { display: block; margin: 14px auto 0; border: 0; color: #2563eb; background: transparent; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .trend-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .trend-panel ol { margin: 14px 0 0; padding: 0; list-style: none; }
 .trend-panel li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #334155; }
