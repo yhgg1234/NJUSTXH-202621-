@@ -1,0 +1,20 @@
+{
+  "demo": true,
+  "description": "演示数据示例，用于展示数据采集与清洗的输入输出格式",
+  "sample_jobs": [
+    {
+      "job_title": "AI算法工程师",
+      "skills": ["Python", "PyTorch", "深度学习", "NLP", "大模型微调"],
+      "industry": "人工智能",
+      "experience": "3-5年",
+      "education": "硕士及以上"
+    },
+    {
+      "job_title": "大数据开发工程师",
+      "skills": ["Hadoop", "Spark", "Flink", "SQL", "Kafka"],
+      "industry": "大数据",
+      "experience": "1-3年",
+      "education": "本科及以上"
+    }
+  ]
+}

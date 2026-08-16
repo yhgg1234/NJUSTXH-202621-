@@ -1,32 +1,59 @@
-# Python 缓存
+# Python
 __pycache__/
-*.pyc
-*.pyo
-
-# 虚拟环境
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
 venv/
 env/
-.venv/
 
-# 环境变量（可能有密码/密钥）
+# Node / Vue
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# 环境变量（不要提交敏感信息）
 .env
-*.env
+.env.local
 
-# 数据文件：忽略所有原始和处理过的数据，但保留 sample 文件夹
-data/raw/
-data/processed/
-*.csv
-*.xlsx
-*.json
-*.pkl
-*.parquet
-!data/sample/
+# 数据文件（太大不上传）
+data/raw/*
+data/processed/*
+!data/demo/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
 
-# IDE 配置
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# 日志和临时文件
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+docker/*.log
+
+# 模型文件
+*.pt
+*.pth
+*.onnx
+*.bin
+models/
+
+# 日志
 logs/
 *.log
-temp/
+
+# 测试覆盖率
+htmlcov/
+.coverage
+coverage.xml
+.pytest_cache/

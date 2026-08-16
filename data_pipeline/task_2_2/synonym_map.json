@@ -1,0 +1,66 @@
+{
+  "python": {"type": "Skill", "id": "skill:python", "name": "Python", "category": "编程语言"},
+  "java": {"type": "Skill", "id": "skill:java", "name": "Java", "category": "编程语言"},
+  "c++": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
+  "cpp": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
+  "cplusplus": {"type": "Skill", "id": "skill:c++", "name": "C++", "category": "编程语言"},
+  "go": {"type": "Skill", "id": "skill:go", "name": "Go", "category": "编程语言"},
+  "javascript": {"type": "Skill", "id": "skill:javascript", "name": "JavaScript", "category": "编程语言"},
+  "sql": {"type": "Skill", "id": "skill:sql", "name": "SQL", "category": "数据库与存储"},
+  "linux": {"type": "Skill", "id": "skill:linux", "name": "Linux", "category": "操作系统"},
+
+  "mysql": {"type": "Skill", "id": "skill:mysql", "name": "MySQL", "category": "数据库与存储"},
+  "redis": {"type": "Skill", "id": "skill:redis", "name": "Redis", "category": "数据库与存储"},
+  "elasticsearch": {"type": "Skill", "id": "skill:elasticsearch", "name": "Elasticsearch", "category": "数据库与存储"},
+  "milvus": {"type": "Skill", "id": "skill:milvus", "name": "Milvus", "category": "数据库与存储"},
+  "neo4j": {"type": "Skill", "id": "skill:neo4j", "name": "Neo4j", "category": "数据库与存储"},
+
+  "springboot": {"type": "Skill", "id": "skill:springboot", "name": "Spring Boot", "category": "开发框架"},
+  "vue": {"type": "Skill", "id": "skill:vue", "name": "Vue", "category": "开发框架"},
+  "react": {"type": "Skill", "id": "skill:react", "name": "React", "category": "开发框架"},
+
+  "docker": {"type": "Skill", "id": "skill:docker", "name": "Docker", "category": "云与容器"},
+  "kubernetes": {"type": "Skill", "id": "skill:kubernetes", "name": "Kubernetes", "category": "云与容器"},
+  "k8s": {"type": "Skill", "id": "skill:kubernetes", "name": "Kubernetes", "category": "云与容器"},
+  "aws": {"type": "TechStack", "id": "stack:aws", "name": "AWS", "category": "云平台"},
+  "azure": {"type": "TechStack", "id": "stack:azure", "name": "Azure", "category": "云平台"},
+
+  "hadoop": {"type": "TechStack", "id": "stack:hadoop", "name": "Hadoop", "category": "大数据技术栈"},
+  "spark": {"type": "TechStack", "id": "stack:spark", "name": "Spark", "category": "大数据技术栈"},
+
+  "machine learning": {"type": "Skill", "id": "skill:machine-learning", "name": "Machine Learning", "category": "算法与方法"},
+  "机器学习": {"type": "Skill", "id": "skill:machine-learning", "name": "Machine Learning", "category": "算法与方法"},
+  "deep learning": {"type": "Skill", "id": "skill:deep-learning", "name": "Deep Learning", "category": "算法与方法"},
+  "深度学习": {"type": "Skill", "id": "skill:deep-learning", "name": "Deep Learning", "category": "算法与方法"},
+  "特征工程": {"type": "Skill", "id": "skill:feature-engineering", "name": "特征工程", "category": "算法与方法"},
+  "推荐系统": {"type": "Skill", "id": "skill:recommender-system", "name": "推荐系统", "category": "算法与方法"},
+  "opencv": {"type": "Skill", "id": "skill:opencv", "name": "OpenCV", "category": "算法与方法"},
+
+  "llm": {"type": "Skill", "id": "skill:llm", "name": "LLM", "category": "大模型应用"},
+  "rag": {"type": "Skill", "id": "skill:rag", "name": "RAG", "category": "大模型应用"},
+  "agent": {"type": "Skill", "id": "skill:agent", "name": "Agent", "category": "大模型应用"},
+  "langchain": {"type": "Skill", "id": "skill:langchain", "name": "LangChain", "category": "大模型应用"},
+
+  "git": {"type": "Skill", "id": "skill:git", "name": "Git", "category": "工程工具"},
+  "jenkins": {"type": "Skill", "id": "skill:jenkins", "name": "Jenkins", "category": "工程工具"},
+  "gitlab": {"type": "Skill", "id": "skill:gitlab", "name": "GitLab", "category": "工程工具"},
+  "mlflow": {"type": "Skill", "id": "skill:mlflow", "name": "MLflow", "category": "工程工具"},
+  "airflow": {"type": "Skill", "id": "skill:airflow", "name": "Airflow", "category": "工程工具"},
+
+  "数据治理": {"type": "Skill", "id": "skill:data-governance", "name": "数据治理", "category": "数据分析与可视化"},
+  "tableau": {"type": "Skill", "id": "skill:tableau", "name": "Tableau", "category": "数据分析与可视化"},
+  "power bi": {"type": "Skill", "id": "skill:power-bi", "name": "Power BI", "category": "数据分析与可视化"},
+
+  "本科": {"type": "Education", "id": "edu:bachelor", "name": "本科及以上", "category": "学历"},
+  "本科以上": {"type": "Education", "id": "edu:bachelor", "name": "本科及以上", "category": "学历"},
+  "本科及以上": {"type": "Education", "id": "edu:bachelor", "name": "本科及以上", "category": "学历"},
+  "硕士": {"type": "Education", "id": "edu:master", "name": "硕士及以上", "category": "学历"},
+  "硕士以上": {"type": "Education", "id": "edu:master", "name": "硕士及以上", "category": "学历"},
+  "硕士及以上": {"type": "Education", "id": "edu:master", "name": "硕士及以上", "category": "学历"},
+  "博士": {"type": "Education", "id": "edu:doctor", "name": "博士", "category": "学历"},
+
+  "云原生": {"type": "TechStack", "id": "stack:cloud-native", "name": "云原生", "category": "云与容器"},
+  "mlops": {"type": "TechStack", "id": "stack:mlops", "name": "MLOps", "category": "工程工具"},
+  "java生态": {"type": "TechStack", "id": "stack:java-ecosystem", "name": "Java 生态", "category": "开发框架"},
+  "java 生态": {"type": "TechStack", "id": "stack:java-ecosystem", "name": "Java 生态", "category": "开发框架"}
+}

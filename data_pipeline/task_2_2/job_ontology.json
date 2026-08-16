@@ -1,0 +1,102 @@
+{
+  "数据科学家": {
+    "id": "job:data-scientist",
+    "name": "数据科学家",
+    "aliases": ["Data Scientist", "Data Scientist（数据科学家）", "数据科学工程师"]
+  },
+  "数据分析师": {
+    "id": "job:data-analyst",
+    "name": "数据分析师",
+    "aliases": ["Data Analyst", "BI数据分析师"]
+  },
+  "前端工程师": {
+    "id": "job:frontend-engineer",
+    "name": "前端开发工程师",
+    "aliases": ["前端研发工程师", "前端开发工程师", "前端工程师"]
+  },
+  "后端开发工程师（java）": {
+    "id": "job:backend-java",
+    "name": "Java开发工程师",
+    "aliases": ["后端开发工程师（Java）", "Java后端开发工程师", "高级Java后端开发工程师", "Java开发工程师"]
+  },
+  "后端开发工程师（go）": {
+    "id": "job:backend-go",
+    "name": "Go开发工程师",
+    "aliases": ["后端开发工程师（Go）", "Golang后端开发工程师", "高级后端开发工程师（Go）", "Go语言开发工程师", "GO服务端开发"]
+  },
+  "算法工程师": {
+    "id": "job:algorithm-engineer",
+    "name": "算法工程师",
+    "aliases": ["推荐算法工程师", "搜索引擎算法工程师", "机器学习算法工程师", "AIGC算法工程师", "语音识别算法工程师", "自动驾驶算法工程师（端到端）", "自动驾驶算法工程师", "搜索算法工程师", "算法工程师（声学/语音方向）"]
+  },
+  "运维工程师": {
+    "id": "job:ops-engineer",
+    "name": "运维工程师",
+    "aliases": ["IT运维工程师", "DevOps工程师", "DevOps工程师（外派）", "DevOps工程师（外企）"]
+  },
+  "ui设计师": {
+    "id": "job:ui-designer",
+    "name": "UI设计师",
+    "aliases": ["UI界面设计师"]
+  },
+  "安全工程师": {
+    "id": "job:security-engineer",
+    "name": "安全工程师",
+    "aliases": ["安全工程师"]
+  },
+  "嵌入式工程师": {
+    "id": "job:embedded-engineer",
+    "name": "嵌入式开发工程师",
+    "aliases": ["嵌入式软件工程师", "嵌入式软件开发工程师"]
+  },
+  "产品经理": {
+    "id": "job:product-manager",
+    "name": "产品经理",
+    "aliases": ["互联网产品经理"]
+  },
+  "运营": {
+    "id": "job:operation",
+    "name": "运营",
+    "aliases": ["用户运营"]
+  },
+  "数据工程师": {
+    "id": "job:data-engineer",
+    "name": "大数据开发工程师",
+    "aliases": ["大数据开发工程师", "资深大数据开发工程师", "数据治理工程师", "知识图谱工程师", "数据库开发工程师"]
+  },
+  "物联网开发工程师": {
+    "id": "job:iot-engineer",
+    "name": "物联网开发工程师",
+    "aliases": ["物联网开发工程师"]
+  },
+  "游戏客户端开发工程师": {
+    "id": "job:game-client-engineer",
+    "name": "游戏客户端开发工程师",
+    "aliases": ["游戏客户端开发工程师"]
+  },
+  "云原生工程师": {
+    "id": "job:cloud-native-engineer",
+    "name": "云原生开发工程师",
+    "aliases": ["云原生工程师", "云原生技术专家"]
+  },
+  "计算机视觉工程师": {
+    "id": "job:cv-engineer",
+    "name": "计算机视觉工程师",
+    "aliases": ["计算机视觉工程师", "机器视觉工程师"]
+  },
+  "区块链工程师": {
+    "id": "job:blockchain-engineer",
+    "name": "区块链工程师",
+    "aliases": ["区块链工程师"]
+  },
+  "测试开发工程师": {
+    "id": "job:test-engineer",
+    "name": "测试开发工程师",
+    "aliases": ["测试开发工程师"]
+  },
+  "移动端开发工程师": {
+    "id": "job:mobile-engineer",
+    "name": "移动端开发工程师",
+    "aliases": ["移动端开发工程师", "iOS开发工程师", "Android开发工程师", "Android移动端开发工程师"]
+  }
+}
