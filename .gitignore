@@ -1,0 +1,32 @@
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# 环境变量（可能有密码/密钥）
+.env
+*.env
+
+# 数据文件：忽略所有原始和处理过的数据，但保留 sample 文件夹
+data/raw/
+data/processed/
+*.csv
+*.xlsx
+*.json
+*.pkl
+*.parquet
+!data/sample/
+
+# IDE 配置
+.vscode/
+.idea/
+
+# 日志和临时文件
+logs/
+*.log
+temp/
