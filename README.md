@@ -31,7 +31,7 @@
 | 数据处理管线 | [`data_pipeline/README.md`](data_pipeline/README.md) | 数据处理脚本和管线说明 |
 | 工具脚本 | [`scripts/README.md`](scripts/README.md) | 项目辅助脚本说明 |
 
-当前联调状态：2.4 已支持直接读取 2.2 的 `normalized_records.json/jsonl`，对照 2.3 图谱进行新岗位发现和既有岗位能力更新，并在人工审核后写回 2.3；详见[子任务 2.4 文档](backend/app/discovery/README.md)。3.1 已支持将 `data/demo/task_2_2_1000/graph_import_batch.json` 实际导入 Neo4j，读取由 `published_at` 生成的月度快照，并在分析层进一步汇总季度演化结果；详见[子任务 3.1 文档](backend/app/jobs/README.md)。3.3 前后端展示链路可基于 demo 数据运行，完整真实简历匹配闭环仍需 3.2 简历画像的实际交接。
+当前联调状态：2.4 已支持直接读取 2.2 的 `normalized_records.json/jsonl`，对照 2.3 图谱进行新岗位发现和既有岗位能力更新，并在人工审核后写回 2.3；详见[子任务 2.4 文档](backend/app/discovery/README.md)。3.1 已支持将 `data/demo/task_2_2_1000/graph_import_batch.json` 实际导入 Neo4j，读取由 `published_at` 生成的月度快照，并在分析层进一步汇总季度演化结果；详见[子任务 3.1 文档](backend/app/jobs/README.md)。3.3 人岗匹配已接入 2.3 图谱岗位与 3.2 简历（MongoDB），可用真实数据运行。
 
 ## 技术栈
 
@@ -57,7 +57,7 @@
 │   │   │   ├── data_collection.py  # 数据采集
 │   │   │   ├── data_cleaning.py    # 数据清洗
 │   │   │   ├── extraction.py       # 信息抽取
-│   │   │   ├── jobs.py             # 岗位管理
+│   │   │   ├── jobs.py             # 岗位演化与新岗位发现
 │   │   │   ├── resume.py           # 简历解析
 │   │   │   ├── matching.py         # 人岗匹配
 │   │   │   └── dashboard.py        # 仪表盘
@@ -82,7 +82,6 @@
 │       │   ├── DataCleaning.vue    # 数据清洗
 │       │   ├── Extraction.vue      # 信息抽取
 │       │   ├── KnowledgeGraph.vue  # 知识图谱
-│       │   ├── JobSearch.vue       # 岗位管理
 │       │   ├── JobEvolution.vue    # 岗位演化
 │       │   ├── NewJobDiscovery.vue # 新岗位发现与能力动态更新
 │       │   ├── ResumeParse.vue     # 简历解析
@@ -286,42 +285,17 @@ docker-compose up -d neo4j
 
 ---
 
-### 五、岗位管理 `/api/jobs`
+### 五、岗位演化与新岗位发现 `/api/jobs`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/` | 岗位列表（支持筛选） |
-| POST | `/` | 创建岗位 |
-| GET | `/{id}` | 岗位详情 |
-| PUT | `/{id}` | 更新岗位 |
-| DELETE | `/{id}` | 删除岗位 |
-| GET | `/search` | 高级检索 |
-| POST | `/discover-new` | 新岗位自动发现 |
-| POST | `/evolution` | 演化分析 |
+| POST | `/evolution` | 岗位演化分析 |
 | GET | `/{id}/evolution-timeline` | 演化时间线 |
-| GET | `/skills/hot` | 热门技能排行 |
-| GET | `/skills/{name}/trend` | 技能趋势 |
-
-**创建岗位** `POST /`
-```json
-{
-  "title": "AI Agent开发工程师",        // string 必填
-  "description": "负责基于LLM的Agent系统设计...",  // string 必填
-  "skills": [
-    {
-      "name": "Python",                // string 必填
-      "required": true,                // bool, true=必备 false=加分
-      "proficiency": "精通",           // string 可选: 了解|熟悉|精通|专家
-      "years": 3                       // int 可选
-    }
-  ],
-  "education_required": "本科及以上",   // string 可选
-  "experience_years": [3, 5],         // [int,int] 可选
-  "industries": ["互联网"],            // list[string] 可选
-  "tech_stacks": ["Python", "Docker"], // list[string] 可选
-  "certificates": ["PMP"]             // list[string] 可选
-}
-```
+| POST | `/discover-new` | 新岗位自动发现 |
+| GET | `/discover-new/stats` | 发现统计 |
+| GET | `/discover-new/history` | 采纳/否决历史 |
+| POST | `/ability-changes/analyze` | 能力变更分析 |
+| GET | `/ability-changes` | 能力变更列表 |
 
 **新岗位发现** `POST /discover-new`
 ```json
@@ -429,26 +403,24 @@ docker-compose up -d neo4j
                                                │
                                                ▼
                                        ┌──────────────┐
-                                       │  岗位管理      │
-                                       │  岗位CRUD      │
+                                       │  岗位演化      │
                                        │  新岗位发现     │
-                                       │  演化分析      │
+                                       │  能力变更      │
                                        └──────────────┘
 ```
 
 ## 开发状态
 
-| 模块 | API端点 | 状态 |
-|------|--------|------|
-| 知识图谱 | 6 | ✅ 已实现 |
-| 数据采集 | 11 | 🏗️ 接口已定义（501） |
-| 数据清洗 | 9 | 🏗️ 接口已定义（501） |
-| 信息抽取 | 8 | 🏗️ 接口已定义（501） |
-| 岗位管理 | 11 | 🏗️ 接口已定义（501） |
-| 简历解析 | 6 | 🏗️ 接口已定义（501） |
-| 人岗匹配 | 6 | 🏗️ 接口已定义（501） |
-| 仪表盘 | 4 | 🏗️ 接口已定义（501） |
-| **合计** | **52** | 1模块已实现 / 7模块待实现 |
+| 模块 | 状态 |
+|------|------|
+| 知识图谱 | ✅ 已实现 |
+| 数据采集 | ✅ 已实现（内置 demo 数据源，真实平台需抓包配登录态） |
+| 数据清洗 | ✅ 已实现（支持上传文件 / 从采集结果直接清洗） |
+| 信息抽取 | ⏸️ 代码已实现，需安装 LLM 依赖栈（langchain/sentence-transformers） |
+| 岗位演化 / 新岗位发现 | ✅ 已实现（挂在 /api/jobs；原「岗位管理」CRUD 已移除） |
+| 简历解析 | ✅ 已实现（需讯飞星火 key + MongoDB） |
+| 人岗匹配 | ✅ 已实现（接入 MongoDB 简历与图谱岗位） |
+| 仪表盘 | 🏗️ 接口已定义（501） |
 
 ## 分支策略
 
