@@ -11,7 +11,6 @@
       <router-link to="/data-cleaning">数据清洗</router-link>
       <router-link to="/extraction">信息抽取</router-link>
       <router-link to="/knowledge-graph">知识图谱</router-link>
-      <router-link to="/jobs">岗位管理</router-link>
       <router-link to="/job-evolution">岗位演化</router-link>
       <router-link to="/new-job-discovery">趋势洞察</router-link>
       <router-link to="/resume">简历解析</router-link>

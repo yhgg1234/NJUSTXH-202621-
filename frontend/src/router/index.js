@@ -32,12 +32,6 @@ const routes = [
     meta: { title: '知识图谱' },
   },
   {
-    path: '/jobs',
-    name: 'JobSearch',
-    component: () => import('../pages/JobSearch.vue'),
-    meta: { title: '岗位管理' },
-  },
-  {
     path: '/new-job-discovery',
     name: 'NewJobDiscovery',
     component: () => import('../pages/NewJobDiscovery.vue'),
