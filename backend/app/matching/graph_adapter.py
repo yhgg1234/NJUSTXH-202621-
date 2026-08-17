@@ -95,6 +95,36 @@ def load_job_profile_from_graph(job_id: str) -> JobProfile | None:
     )
 
 
+def list_graph_jobs() -> dict[str, JobProfile]:
+    """列出图谱中所有岗位画像；图谱不可用时返回空字典。"""
+    try:
+        subgraph = get_graph_service().get_subgraph(
+            job_id=None,
+            tech_stack=None,
+            level=None,
+            industry=None,
+            period=None,
+            as_of=None,
+            include_history=False,
+            limit=200,
+        )
+    except Exception as exc:  # noqa: BLE001 - 图谱不可用时降级
+        logger.warning("Failed to list jobs from graph: {}", exc)
+        return {}
+
+    jobs: dict[str, JobProfile] = {}
+    for node in subgraph.get("nodes", []):
+        if node.get("type") != "Job":
+            continue
+        job_id = node.get("id")
+        if not job_id:
+            continue
+        profile = load_job_profile_from_graph(job_id)
+        if profile and profile.skills:
+            jobs[job_id] = profile
+    return jobs
+
+
 def _skill_from_graph_node(
     node: dict[str, Any],
     relationship_properties: dict[str, Any],

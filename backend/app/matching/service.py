@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.matching.llm import SparkLiteClient
-from app.matching.graph_adapter import load_job_profile_from_graph
-from app.matching.resume_loader import display_resume_name, load_processed_resumes
+from app.matching.graph_adapter import list_graph_jobs
+from app.matching.resume_loader import display_resume_name, load_mongodb_resumes, load_processed_resumes
 from app.matching.models import (
     DemoOptionsResponse,
     DimensionScore,
@@ -70,13 +70,24 @@ class MatchingService:
         self.llm_client = llm_client or SparkLiteClient()
         self.reports: dict[str, MatchReport] = {}
         self.history: list[MatchReport] = []
-        loaded_resumes = load_processed_resumes() if resumes is None else resumes
+        if resumes is None:
+            file_resumes = load_processed_resumes()
+            mongo_resumes = load_mongodb_resumes()
+            loaded_resumes = {**file_resumes, **mongo_resumes}
+        else:
+            loaded_resumes = resumes
+            file_resumes = {}
+            mongo_resumes = {}
         self.resumes = loaded_resumes or _demo_resumes()
-        self.resume_data_source = "processed" if loaded_resumes else "demo"
-        self.jobs = jobs or _demo_jobs()
-        self.graph_jobs: dict[str, JobProfile] = {}
+        self.resume_data_source = "mongodb" if mongo_resumes else ("processed" if file_resumes else "demo")
+        self.graph_jobs: dict[str, JobProfile] = list_graph_jobs()
+        self.jobs = self.graph_jobs or (jobs or _demo_jobs())
 
     def demo_options(self) -> DemoOptionsResponse:
+        # 懒刷新 MongoDB 简历，让新上传的简历立即出现在选项中
+        mongo_resumes = load_mongodb_resumes()
+        if mongo_resumes:
+            self.resumes = {**self.resumes, **mongo_resumes}
         return DemoOptionsResponse(
             resumes=[
                 {"id": item.id, "name": display_resume_name(item)}
@@ -188,13 +199,6 @@ class MatchingService:
         return self.resumes[resume_id], self._get_job(job_id)
 
     def _get_job(self, job_id: str) -> JobProfile:
-        graph_job = self.graph_jobs.get(job_id)
-        if graph_job:
-            return graph_job
-        graph_job = load_job_profile_from_graph(job_id)
-        if graph_job and graph_job.skills:
-            self.graph_jobs[job_id] = graph_job
-            return graph_job
         if job_id not in self.jobs:
             raise KeyError(f"job not found: {job_id}")
         return self.jobs[job_id]
