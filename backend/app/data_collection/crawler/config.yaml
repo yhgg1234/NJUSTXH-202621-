@@ -1,0 +1,24 @@
+# JD 爬虫配置(合规版)
+# ------------------------------------------------------------------
+# adapter: 选 public_search_demo(演示, 不联网) 或 logged_in_template(登录态, 需抓包填参数)
+adapter: public_search_demo
+
+# 最大翻页数(每个平台)。真实平台请保持低位, 避免触发风控/封号
+max_pages: 3
+
+# 输出文件(契约版 xlsx, 格式与 JD数据_契约版.xlsx 一致)
+out: ../../jd_crawled_demo.xlsx
+
+# 采集月份(用于 crawled_at 与月度分表; 留空则用当前月)
+crawled_month: "2026-08"
+
+# 登录态平台需要的参数(仅当 adapter=logged_in_template 时生效)
+# 这些字段需你用浏览器 DevTools 抓包后填写, 且 Cookie 仅用你自己的账号
+adapter_cfg:
+  platform: "BOSS直聘"
+  url_template: "https://www.zhipin.com/wapi/zpgeek/search/joblist.json?page={page}&city=101010100&query=Java"
+  max_pages: 5
+  headers:
+    User-Agent: "Mozilla/5.0 (你的浏览器 UA)"
+    Cookie: "填你从 DevTools 复制的 Cookie(仅用自己账号)"
+    # Authorization: "Bearer xxx"   # 若接口需要

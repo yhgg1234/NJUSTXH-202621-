@@ -40,13 +40,26 @@ class DatasetSplitter:
             report: 划分报告字典
         """
         logger.info("开始数据集划分流程...")
-        
+
         original_count = len(df)
         self.split_report = {
             'original_count': original_count,
             'steps': []
         }
-        
+
+        # 样本数过少时无法拆分 train/val/test，全部放入训练集，避免 train_test_split 抛空集错误
+        if original_count < 3:
+            logger.warning(f"样本数过少({original_count})，跳过划分，全部放入训练集")
+            empty = df.iloc[0:0].copy()
+            datasets = {
+                'train': df.reset_index(drop=True),
+                'val': empty.reset_index(drop=True),
+                'test': empty.reset_index(drop=True),
+            }
+            self.split_report['steps'].append({'step': 'skip_split', 'reason': '样本数少于3'})
+            self.split_report['note'] = '样本数过少，未划分，全部放入训练集'
+            return datasets, self.split_report
+
         # 1. 创建分层字段
         stratify_column = self._create_stratify_column(df)
         
