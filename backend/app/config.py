@@ -42,13 +42,10 @@ class Settings:
     MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     MONGO_DATABASE: str = os.getenv("MONGO_DATABASE", "job_data")
 
-    # 大模型配置
-    LLM_API_URL: str = os.getenv(
-        "LLM_API_URL",
-        "https://spark-api-open.xf-yun.com/v1/chat/completions",
-    )
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "lite")
+    # 大模型配置（用 or 回退默认值，避免 .env 里留空覆盖默认）
+    LLM_API_URL: str = os.getenv("LLM_API_URL") or "https://spark-api-open.xf-yun.com/v1/chat/completions"
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY") or ""
+    LLM_MODEL: str = os.getenv("LLM_MODEL") or "lite"
 
     # 服务配置
     API_PORT: int = int(os.getenv("API_PORT", "8000"))

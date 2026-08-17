@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import os
 from datetime import datetime, timezone
 
 import httpx
@@ -85,6 +86,33 @@ def _sanitize_json_string(text: str) -> str:
     return text
 
 
+def _extract_json(text: str) -> dict | None:
+    """从 LLM 输出中尽力提取 JSON 对象（容忍 ```json 包裹或前后多余文字）。"""
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(text[start : end + 1])
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _pick(raw: dict, *keys: str):
+    """从字典中按顺序取第一个非空字段值。"""
+    for key in keys:
+        value = raw.get(key)
+        if value:
+            return value
+    return None
+
+
 def _build_parsed_resume(raw: dict, file_name: str) -> ParsedResume:
     """将 LLM 返回的字典安全转换为 ParsedResume。"""
 
@@ -136,15 +164,15 @@ def _build_parsed_resume(raw: dict, file_name: str) -> ParsedResume:
                 logger.debug("跳过无效项目经验条目: %s", item)
         return results
 
-    confidence = float(raw.get("confidence", 0))
+    confidence = float(raw.get("confidence", 0.8))
     confidence = max(0.0, min(1.0, confidence))
 
     return ParsedResume(
         id="",
         file_name=file_name,
-        name=str(raw.get("name", "")).strip(),
-        email=raw.get("email"),
-        phone=raw.get("phone"),
+        name=str(_pick(raw, "name", "姓名") or "").strip(),
+        email=_pick(raw, "email", "邮箱"),
+        phone=_pick(raw, "phone", "contact_number", "phone_number", "电话", "手机号", "联系电话"),
         education=_to_education_list(raw.get("education") or []),
         work_experience=_to_work_list(raw.get("work_experience") or []),
         projects=_to_project_list(raw.get("projects") or []),
@@ -175,7 +203,7 @@ class ResumeLLMParser:
     def enabled(self) -> bool:
         return bool(self.api_url and self.api_key)
 
-    async def parse(self, resume_text: str, file_name: str = "unknown") -> ParsedResume:
+    async def parse(self, resume_text: str, file_name: str = "unknown", to_dir:bool = False, json_file_path:str = None) -> ParsedResume:
         """异步解析简历文本为结构化 ParsedResume。
 
         Args:
@@ -206,6 +234,33 @@ class ResumeLLMParser:
         max_chars = 4000
         payload = resume_text[:max_chars]
 
+        # lite 模型偶发不按 JSON 输出，解析为空时用更强指令重试一次
+        prompts = [
+            self.system_prompt,
+            self.system_prompt
+            + "\n\n【重要】你必须只输出一个合法 JSON 对象，不要输出 ```json 代码块标记，"
+              "也不要输出 JSON 之外的任何文字。",
+        ]
+        for attempt, prompt in enumerate(prompts):
+            content = await self._request_llm(prompt, payload)
+            if content is None:
+                continue
+            parsed = self._parse_response(content, file_name, to_dir, json_file_path)
+            if (
+                parsed.name
+                or parsed.email
+                or parsed.phone
+                or parsed.skills
+                or parsed.education
+                or parsed.work_experience
+            ):
+                return parsed
+            logger.warning("第 %d 次解析结果为空，准备重试", attempt + 1)
+
+        return self._empty(file_name)
+
+    async def _request_llm(self, system_prompt: str, payload: str) -> str | None:
+        """调用 Spark Lite，成功返回文本，失败返回 None。"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -213,41 +268,37 @@ class ResumeLLMParser:
         body = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": payload},
             ],
             "temperature": 0.1,
         }
-
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.api_url,
-                    headers=headers,
-                    json=body,
-                )
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(self.api_url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
+            return data["choices"][0]["message"]["content"]
         except Exception:
             logger.exception("LLM 请求失败")
-            return ParsedResume(
-                id="",
-                file_name=file_name,
-                parsed_at=datetime.now(timezone.utc).isoformat(),
-                confidence=0.0,
-            )
+            return None
 
-        return self._parse_response(content, file_name)
+    @staticmethod
+    def _empty(file_name: str) -> ParsedResume:
+        return ParsedResume(
+            id="",
+            file_name=file_name,
+            parsed_at=datetime.now(timezone.utc).isoformat(),
+            confidence=0.0,
+        )
 
-    def _parse_response(self, content: str, file_name: str) -> ParsedResume:
+    def _parse_response(self, content: str, file_name: str, to_dir:bool = False, json_file_path:str = None) -> ParsedResume:
         """将 LLM 文本响应反序列化为 ParsedResume。"""
         text = _strip_json_fence(content)
         text = _sanitize_json_string(text)
 
-        try:
-            raw = json.loads(text)
-        except json.JSONDecodeError:
+        raw = _extract_json(text)
+        if raw is None:
             logger.warning("LLM 返回非 JSON 内容，前 300 字符: %s", content[:300])
             return ParsedResume(
                 id="",
@@ -256,25 +307,80 @@ class ResumeLLMParser:
                 confidence=0.0,
             )
 
-        if not isinstance(raw, dict):
-            logger.warning("LLM 返回非字典 JSON: %s", type(raw))
-            return ParsedResume(
-                id="",
-                file_name=file_name,
-                parsed_at=datetime.now(timezone.utc).isoformat(),
-                confidence=0.0,
-            )
+        if to_dir and json_file_path is not None:
+            with open(json_file_path, 'w', encoding='utf-8') as json_file:
+                json.dump(raw, json_file, indent=4, ensure_ascii=False)
+
+        
 
         return _build_parsed_resume(raw, file_name)
 
 
+
+## 测试
 if __name__ == "__main__":
     import asyncio
+    import sys
+    from pathlib import Path
     from app.resume.extractor import ResumeContentExtractor
 
-    path = "C:\\Users\\14005\\Desktop\\data\\辛佳颖简历.pdf"
-    extractor = ResumeContentExtractor()
-    raw_txt = extractor.extract(path)
-    parseror = ResumeLLMParser()
-    parsered_data = asyncio.run(parseror.parse(raw_txt))
-    print(parsered_data)
+    # ---------- 配置 ----------
+    INPUT_DIR = "C:\\Users\\14005\\Desktop\\2022级应届生简历情况\\2022级应届生简历情况"          # 待处理文件夹
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # 项目根目录
+    OUTPUT_DIR = PROJECT_ROOT / "data" / "resume_json"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    MAX_CONCURRENT = 3
+    print(f"最大并发数: {MAX_CONCURRENT}")
+
+    # ---------- 收集待处理文件 ----------
+    file_paths = []
+    for entry in Path(INPUT_DIR).iterdir():
+        if entry.is_file():
+            file_paths.append(entry)
+    if not file_paths:
+        print("输入文件夹中没有文件，程序退出。")
+        sys.exit(0)
+    print(f"共发现 {len(file_paths)} 个文件待处理。")
+
+    # ---------- 异步任务函数 ----------
+    async def process_one(file_path: Path, extractor, parser, output_dir: Path, semaphore: asyncio.Semaphore):
+        """处理单个文件，受信号量控制并发"""
+        async with semaphore:
+            print(f"开始处理: {file_path.name}")
+            try:
+                # 1. 同步提取文本（若需避免阻塞，可改用 run_in_executor）
+                raw_text = extractor.extract(str(file_path))
+
+                # 2. 构造输出 JSON 路径
+                output_json = output_dir / f"{file_path.stem}.json"
+
+                # 3. 异步解析
+                parsed_data = await parser.parse(
+                    raw_text,
+                    file_name=file_path.name,
+                    to_dir=True,
+                    json_file_path=str(output_json)
+                )
+                print(f"✅ 完成: {file_path.name} -> {output_json}")
+                return True
+            except Exception as e:
+                print(f"❌ 处理 {file_path.name} 时出错: {e}")
+                return False
+
+    # ---------- 主异步入口 ----------
+    async def main():
+        extractor = ResumeContentExtractor()
+        parser = ResumeLLMParser()
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+
+        tasks = [
+            process_one(fp, extractor, parser, OUTPUT_DIR, semaphore)
+            for fp in file_paths
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        success_count = sum(1 for r in results if r is True)
+        fail_count = len(results) - success_count
+        print(f"全部处理完成：成功 {success_count}，失败 {fail_count}")
+
+    # 启动事件循环
+    asyncio.run(main())

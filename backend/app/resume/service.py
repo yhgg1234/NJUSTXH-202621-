@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import uuid
@@ -50,8 +51,8 @@ class ResumeParsingService:
         )
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-        # MongoDB 异步连接
-        mongo = mongo_client or AsyncIOMotorClient(settings.MONGO_URI)
+        # MongoDB 异步连接（未部署时快速失败，避免拖慢上传/列表响应）
+        mongo = mongo_client or AsyncIOMotorClient(settings.MONGO_URI, serverSelectionTimeoutMS=2000)
         self.db = mongo[settings.MONGO_DATABASE]
         self.collection: Collection = self.db["resumes"]
 
@@ -139,20 +140,29 @@ class ResumeParsingService:
         Returns:
             按输入顺序的 ParsedResume 列表。
         """
-        results: list[ParsedResume] = []
-        for content, name in files:
-            try:
-                result = await self.parse_single(content, name)
-            except Exception:
-                logger.exception("批量解析中跳过失败文件: %s", name)
-                result = ParsedResume(
-                    id="",
-                    file_name=name,
-                    parsed_at=datetime.now(timezone.utc).isoformat(),
-                    confidence=0.0,
-                )
-            results.append(result)
-        return results
+        # LLM 解析耗时，多个文件并发处理可显著缩短总时长；
+        # 通过信号量限流，避免并发数过高导致大模型接口限流或内存压力。
+        semaphore = asyncio.Semaphore(3)
+
+        async def _process(content: bytes, name: str) -> ParsedResume:
+            async with semaphore:
+                try:
+                    return await self.parse_single(content, name)
+                except Exception:
+                    logger.exception("批量解析中跳过失败文件: %s", name)
+                    return ParsedResume(
+                        id="",
+                        file_name=name,
+                        parsed_at=datetime.now(timezone.utc).isoformat(),
+                        confidence=0.0,
+                    )
+
+        return list(
+            await asyncio.gather(
+                *(_process(content, name) for content, name in files),
+                return_exceptions=False,
+            )
+        )
 
     # ------------------------------------------------------------------
     # MongoDB 持久化

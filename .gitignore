@@ -27,6 +27,9 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# 简历样本（个人敏感数据，不提交）
+2022级应届生简历情况/
+
 # IDE
 .vscode/
 .idea/

@@ -108,6 +108,28 @@ async def list_resumes(
     )
 
 
+# ── 简历检索 ──
+
+@router.get("/search", response_model=ResumeListResponse)
+async def search_resumes(
+    keyword: str | None = Query(None, description="搜索关键词"),
+    skills: list[str] | None = Query(None, description="技能筛选"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """高级检索简历"""
+    service = _get_service()
+    items, total = await service.search_resumes(
+        keyword=keyword,
+        skills=skills,
+        page=page,
+        page_size=page_size,
+    )
+    return ResumeListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
+
+
 @router.get("/{resume_id}", response_model=ParsedResume)
 async def get_resume(resume_id: str):
     """查看解析后的结构化简历"""
@@ -131,25 +153,3 @@ async def delete_resume(resume_id: str):
         )
     return {"message": "删除成功", "resume_id": resume_id}
 
-
-# ── 简历检索 ──
-
-
-@router.get("/search", response_model=ResumeListResponse)
-async def search_resumes(
-    keyword: str | None = Query(None, description="搜索关键词"),
-    skills: list[str] | None = Query(None, description="技能筛选"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-):
-    """高级检索简历"""
-    service = _get_service()
-    items, total = await service.search_resumes(
-        keyword=keyword,
-        skills=skills,
-        page=page,
-        page_size=page_size,
-    )
-    return ResumeListResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )

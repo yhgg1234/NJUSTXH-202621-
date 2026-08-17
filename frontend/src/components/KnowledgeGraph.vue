@@ -68,6 +68,20 @@
     </form>
     <p v-if="optionsError" class="filter-error">{{ optionsError }}</p>
 
+    <div class="type-filters">
+      <span class="type-filters-label">显示类型</span>
+      <button
+        v-for="option in nodeTypeOptions"
+        :key="option.value"
+        type="button"
+        class="type-toggle"
+        :class="{ active: visibleTypes[option.value] }"
+        @click="toggleType(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+
     <div class="graph-layout">
       <div class="canvas-wrap">
         <div ref="chartElement" class="graph-canvas" role="img" aria-label="岗位能力关系图"></div>
@@ -108,7 +122,7 @@ import { GraphChart } from 'echarts/charts'
 import { LegendComponent, TooltipComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import kgApi from '../api/kg'
 import SearchSelect from './SearchSelect.vue'
 
@@ -123,6 +137,16 @@ const selectedNode = ref(null)
 const graph = reactive({ nodes: [], links: [], truncated: false })
 const filters = reactive({ job_id: '', tech_stack: '', level: '', industry: '', period: '' })
 const filterOptions = reactive({ jobs: [], tech_stacks: [], levels: [], industries: [], periods: [] })
+const nodeTypeOptions = [
+  { value: 'Job', label: '岗位' },
+  { value: 'Skill', label: '技能' },
+  { value: 'TechStack', label: '技术栈' },
+  { value: 'Industry', label: '行业' },
+  { value: 'Company', label: '企业' },
+  { value: 'Education', label: '学历' },
+  { value: 'Certificate', label: '证书' },
+]
+const visibleTypes = reactive(Object.fromEntries(nodeTypeOptions.map((option) => [option.value, true])))
 let chart
 let resizeObserver
 
@@ -196,7 +220,12 @@ function renderGraph() {
   chart.setOption(buildOption())
   chart.off('click')
   chart.on('click', (params) => {
-    if (params.dataType === 'node') selectedNode.value = params.data
+    if (params.dataType !== 'node') return
+    selectedNode.value = params.data
+    // 点击岗位节点 → 聚焦该岗位（watch(filters) 会自动重新加载）
+    if (params.data.type === 'Job') {
+      filters.job_id = params.data.id
+    }
   })
 }
 
@@ -206,7 +235,13 @@ async function loadGraph() {
   try {
     const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
     const data = await kgApi.getSubgraph({ ...params, limit: 100 })
-    Object.assign(graph, data)
+    // 只保留勾选的节点类型（Source 来源节点始终不展示，证据仍保留在后端）
+    const nodes = data.nodes.filter((node) => node.type !== 'Source' && visibleTypes[node.type] !== false)
+    const visibleIds = new Set(nodes.map((node) => node.id))
+    const links = data.links.filter(
+      (link) => visibleIds.has(link.source) && visibleIds.has(link.target),
+    )
+    Object.assign(graph, { nodes, links, truncated: data.truncated })
     selectedNode.value = null
     await nextTick()
     renderGraph()
@@ -238,8 +273,14 @@ async function refreshGraph() {
 
 function resetFilters() {
   Object.keys(filters).forEach((key) => { filters[key] = '' })
+}
+
+function toggleType(type) {
+  visibleTypes[type] = !visibleTypes[type]
   loadGraph()
 }
+
+watch(filters, () => loadGraph())
 
 onMounted(async () => {
   resizeObserver = new ResizeObserver(() => chart?.resize())
@@ -271,6 +312,10 @@ select { box-sizing: border-box; width: 100%; height: 40px; border: 1px solid #c
 select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
 select:disabled { cursor: wait; color: #94a3b8; background: #f8fafc; }
 .filter-error { margin: -10px 16px 16px; color: #b91c1c; font-size: 13px; }
+.type-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
+.type-filters-label { color: #475569; font-size: 12px; font-weight: 700; }
+.type-toggle { padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 999px; color: #475569; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.type-toggle.active { color: #fff; background: #2563eb; border-color: #2563eb; }
 .filter-button, .ghost-button { align-self: end; height: 38px; padding: 0 14px; }
 .filter-button { color: #fff; background: #0f172a; }
 .ghost-button { color: #334155; background: #e2e8f0; }

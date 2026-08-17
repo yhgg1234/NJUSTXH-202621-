@@ -168,6 +168,7 @@ class ResumeContentExtractor:
 
 
 if __name__ =="__main__":
-    path = "C:\\Users\\14005\\Desktop\\data\\翟明玮简历.pdf"
+    path = "C:\\Users\\14005\\Desktop\\data\\巩秋实简历.pdf"
     extractor = ResumeContentExtractor()
     txt = extractor.extract(path)
+    print(txt)
