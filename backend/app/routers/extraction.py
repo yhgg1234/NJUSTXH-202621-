@@ -44,7 +44,7 @@ LLM_CONFIG = {
 }
 
 MILVUS_CONFIG = {
-    "uri": os.getenv("MILVUS_URI", "http://127.0.0.1:19530"),
+    "uri": os.getenv("MILVUS_URI", "./data/milvus.db"),
     "collection_name": "standard_skills_lexicon",
 }
 
@@ -870,22 +870,10 @@ def process_single_jd_logic(
 # 4. FastAPI 应用与 API 路由声明
 # ==============================================================================
 
-app = FastAPI(
-    title="HR 知识图谱信息抽取服务",
-    description="支持即时单条图谱抽取、批量 Excel 解析与 RAG 向量检索",
-    version="1.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter(tags=["extraction"])
 
 
-@app.get("/", summary="服务健康状态检查")
+@router.get("/health", summary="信息抽取服务健康检查")
 async def health_check():
   return {
       "status": "online",
@@ -893,7 +881,7 @@ async def health_check():
   }
 
 
-@app.post(
+@router.post(
     "/api/extraction/extract",
     response_model=SingleExtractResponse,
     summary="单条 JD 实时图谱抽取",
@@ -914,7 +902,7 @@ async def extract_single_jd(req: SingleExtractRequest):
     raise HTTPException(status_code=500, detail=f"图谱抽取失败: {str(e)}")
 
 
-@app.post("/api/extraction/batch-file", summary="批量 Excel 文件异步抽取")
+@router.post("/api/extraction/batch-file", summary="批量 Excel 文件异步抽取")
 async def extract_batch_file(file: UploadFile, workers: int = 5):
   """离线处理接口：上传 Excel 批量解析"""
   if not file.filename.endswith((".xlsx", ".xls")):
@@ -960,7 +948,37 @@ async def extract_batch_file(file: UploadFile, workers: int = 5):
   }
 
 
-@app.post("/api/extraction/init-rag", summary="手动触发 Milvus 词库建库初始化")
+@router.post("/api/extraction/from-cleaning", summary="从数据清洗结果批量抽取")
+async def extract_from_cleaning(limit: int = 20):
+  """从数据清洗模块的最近一次清洗结果读取 JD 数据，批量抽取实体与关系。"""
+  from app.data_cleaning.service import get_cleaning_service
+
+  records = get_cleaning_service().get_raw_records()
+  if not records:
+    raise HTTPException(status_code=400, detail="还没有清洗结果，请先到「数据清洗」页运行一次清洗")
+
+  results = []
+  for r in records[:limit]:
+    title = str(r.get("job_title") or "").strip() or "岗位"
+    resp = str(r.get("responsibilities") or "").strip()
+    req = str(r.get("requirements") or "").strip()
+    try:
+      extracted = process_single_jd_logic(title, resp, req, None)
+    except Exception as e:
+      extracted = {"error": str(e)}
+    results.append({
+        "jd_id": r.get("jd_id"),
+        "job_title": title,
+        "entities": extracted.get("entities", []),
+        "relations": extracted.get("relations", []),
+        "overall_confidence": extracted.get("overall_confidence", 0.0),
+        "needs_human_review": extracted.get("needs_human_review", False),
+        "derived_fields": extracted.get("derived_fields", {}),
+    })
+  return {"code": 200, "message": f"已抽取 {len(results)} 条", "total": len(records), "results": results}
+
+
+@router.post("/api/extraction/init-rag", summary="手动触发 Milvus 词库建库初始化")
 async def trigger_rag_init():
   """在 API 网页端一键创建/刷新 Milvus 标准技能向量数据库"""
   try:

@@ -1,12 +1,10 @@
 import apiClient from './client'
 
+// 抽取含 LLM 调用，首次还会触发嵌入模型下载，放宽到 3 分钟
+const TIMEOUT = 3 * 60 * 1000
+
 export default {
-  extractEntities: (data) => apiClient.post('/extraction/entities/extract', data),
-  extractRelations: (data) => apiClient.post('/extraction/relations/extract', data),
-  alignEntities: (data) => apiClient.post('/extraction/entities/align', data),
-  listAlignHistory: (params) => apiClient.get('/extraction/entities/align/history', { params }),
-  getOntology: () => apiClient.get('/extraction/ontology'),
-  updateOntology: (data) => apiClient.put('/extraction/ontology', data),
-  listOntologyEntities: () => apiClient.get('/extraction/ontology/entities'),
-  listOntologyRelations: () => apiClient.get('/extraction/ontology/relations'),
+  extract: (data) => apiClient.post('/extraction/extract', data, { timeout: TIMEOUT }),
+  fromCleaning: (limit) => apiClient.post('/extraction/from-cleaning', null, { params: { limit }, timeout: TIMEOUT }),
+  initRag: () => apiClient.post('/extraction/init-rag', null, { timeout: TIMEOUT }),
 }

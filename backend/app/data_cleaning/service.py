@@ -134,6 +134,10 @@ class DataCleaningService:
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         return next((t for t in self._tasks if t["id"] == task_id), None)
 
+    def get_raw_records(self) -> list[dict[str, Any]]:
+        """返回清洗后的原始记录（含 job_title/responsibilities/requirements 等列），供信息抽取消费。"""
+        return (self._result or {}).get("records", [])
+
     # ------------------------------------------------------------------
     # 内部工具
     # ------------------------------------------------------------------

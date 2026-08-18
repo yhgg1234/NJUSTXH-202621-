@@ -30,6 +30,9 @@ data/processed/*
 # 简历样本（个人敏感数据，不提交）
 2022级应届生简历情况/
 
+# Milvus Lite 本地向量库运行时数据
+backend/data/
+
 # IDE
 .vscode/
 .idea/
